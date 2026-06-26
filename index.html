@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ツリーメモ</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --bg:#ffffff;--surface:#f5f5f3;--border:#e0ddd6;--border-strong:#c8c5be;
+  --border-stronger:#9a9790;--text:#1a1a18;--text-secondary:#6b6966;
+  --text-muted:#a8a5a0;--accent:#378ADD;--danger:#E24B4A;--radius:6px;
+}
+@media(prefers-color-scheme:dark){:root{
+  --bg:#1c1c1a;--surface:#252523;--border:#3a3835;--border-strong:#524f4a;
+  --border-stronger:#706d68;--text:#f0ede8;--text-secondary:#a8a5a0;--text-muted:#6b6966;
+}}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;}
+
+/* SIDEBAR */
+#sidebar{width:220px;min-width:220px;background:var(--surface);border-right:0.5px solid var(--border);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:20;transition:transform 0.2s;}
+#sidebar.hidden{transform:translateX(-220px);}
+.sidebar-header{padding:14px 12px 10px;border-bottom:0.5px solid var(--border);display:flex;align-items:center;gap:8px;}
+.sidebar-header .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);flex-shrink:0;}
+.sidebar-header h1{font-size:14px;font-weight:500;}
+.page-list{flex:1;overflow-y:auto;padding:8px 6px;}
+.page-item{display:flex;align-items:center;gap:6px;padding:7px 8px;border-radius:var(--radius);cursor:pointer;font-size:13px;color:var(--text-secondary);border:0.5px solid transparent;margin-bottom:2px;}
+.page-item:hover{background:var(--bg);color:var(--text);}
+.page-item.active{background:var(--bg);color:var(--text);border-color:var(--border);}
+.page-item-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.page-del{opacity:0;width:16px;height:16px;border:none;background:transparent;color:var(--text-muted);cursor:pointer;font-size:12px;flex-shrink:0;border-radius:3px;display:flex;align-items:center;justify-content:center;}
+.page-item:hover .page-del,.page-item.active .page-del{opacity:1;}
+.page-del:hover{color:var(--danger);}
+.sidebar-footer{padding:10px 6px;border-top:0.5px solid var(--border);}
+.new-page-btn{width:100%;padding:7px 10px;border:0.5px dashed var(--border-strong);border-radius:var(--radius);background:transparent;color:var(--text-muted);cursor:pointer;font-size:12px;display:flex;align-items:center;gap:6px;}
+.new-page-btn:hover{background:var(--bg);color:var(--text-secondary);}
+
+/* MAIN */
+#main{margin-left:220px;display:flex;flex-direction:column;min-height:100vh;flex:1;transition:margin-left 0.2s;}
+#main.full{margin-left:0;}
+header{padding:12px 16px;border-bottom:0.5px solid var(--border);display:flex;align-items:center;gap:10px;background:var(--bg);position:sticky;top:0;z-index:10;}
+#sidebar-toggle{width:28px;height:28px;border:none;background:transparent;color:var(--text-muted);cursor:pointer;border-radius:var(--radius);display:flex;align-items:center;justify-content:center;font-size:16px;}
+#sidebar-toggle:hover{background:var(--surface);}
+#page-title-display{flex:1;font-size:15px;font-weight:500;color:var(--text);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.hbtn{padding:5px 12px;border-radius:var(--radius);border:0.5px solid var(--border-strong);background:transparent;color:var(--text-secondary);cursor:pointer;font-size:12px;display:flex;align-items:center;gap:5px;white-space:nowrap;}
+.hbtn:hover{background:var(--surface);color:var(--text);}
+
+/* TREE */
+#content{padding:24px 20px 80px;overflow-x:auto;}
+.tree-root{display:flex;flex-direction:column;}
+.node-group{display:flex;flex-direction:row;align-items:stretch;}
+.node-self{display:flex;flex-direction:column;justify-content:flex-start;flex-shrink:0;}
+.node-row{display:flex;align-items:center;min-height:32px;padding:4px 0;}
+.node-content{display:flex;align-items:center;gap:6px;flex-shrink:0;}
+.node-bullet{width:6px;height:6px;border-radius:50%;border:1.5px solid var(--border-stronger);flex-shrink:0;cursor:pointer;transition:background 0.15s;}
+.node-bullet:hover{background:var(--border-stronger);}
+.node-text-wrap{position:relative;display:inline-flex;flex-direction:column;}
+.node-text{border:none;outline:none;background:transparent;line-height:1.5;white-space:nowrap;font-family:inherit;min-width:20px;padding:0 0 2px 0;}
+.node-text:empty:before{content:attr(data-placeholder);color:var(--text-muted);pointer-events:none;}
+.node-underline{width:100%;margin-top:1px;transition:background 0.15s;}
+
+/* タイトル（depth=0）とそれ以外でスタイル分岐 */
+.node-text.title-text{font-size:22px;font-weight:600;color:var(--text);}
+.node-underline.title-underline{height:2px;background:var(--border-strong);}
+.node-text-wrap:focus-within .title-underline{background:var(--accent);}
+
+.node-text.body-text{font-size:15px;color:var(--text);}
+.node-underline.body-underline{height:1px;background:var(--border-strong);}
+.node-text-wrap:focus-within .body-underline{background:var(--border-stronger);}
+
+/* タイトルのbulletは非表示 */
+.node-bullet.title-bullet{display:none;}
+
+.add-btns{display:none;gap:2px;align-items:center;margin-left:6px;flex-shrink:0;}
+.node-row:hover .add-btns,.node-content:focus-within .add-btns{display:flex;}
+/* タイトルノードの追加/削除ボタンは隠す */
+.title-add-btns{display:none!important;}
+.add-btn{width:20px;height:20px;border-radius:3px;border:0.5px solid var(--border-strong);background:transparent;color:var(--text-muted);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:11px;}
+.add-btn:hover{background:var(--bg);color:var(--text);}
+.del-btn{width:20px;height:20px;border-radius:3px;border:none;background:transparent;color:var(--text-muted);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;}
+.del-btn:hover{color:var(--danger);}
+.connector-col{width:28px;flex-shrink:0;position:relative;}
+.connector-svg{position:absolute;left:0;top:0;width:28px;pointer-events:none;}
+.children-col{display:flex;flex-direction:column;}
+.root-add{margin-top:16px;}
+.root-add-btn{font-size:12px;color:var(--text-muted);border:0.5px dashed var(--border-strong);border-radius:var(--radius);padding:5px 14px;background:transparent;cursor:pointer;display:flex;align-items:center;gap:6px;}
+.root-add-btn:hover{color:var(--text-secondary);background:var(--surface);}
+
+@media print{
+  @page{size:A4;margin:20mm;}
+  #sidebar,header,.add-btns,.root-add{display:none!important;}
+  #main{margin-left:0!important;}
+  #content{padding:0;overflow:visible;}
+  body{background:#fff;color:#000;}
+  .node-text{color:#000!important;white-space:normal!important;}
+  .node-underline{background:#ccc!important;}
+  .title-underline{background:#999!important;}
+  .connector-svg line,.connector-svg path{stroke:#ccc!important;}
+  .node-bullet{border-color:#888!important;}
+}
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <div class="sidebar-header"><span class="dot"></span><h1>memotreeee</h1></div>
+  <div class="page-list" id="page-list"></div>
+  <div class="sidebar-footer"><button class="new-page-btn" onclick="newPage()">＋ 新しいページ</button></div>
+</div>
+
+<div id="main">
+  <header>
+    <button id="sidebar-toggle" onclick="toggleSidebar()" aria-label="サイドバー">☰</button>
+    <span id="page-title-display">無題</span>
+    <button class="hbtn" onclick="exportPDF()">⬇ PDF</button>
+  </header>
+  <div id="content"><div id="app"></div></div>
+</div>
+
+<script>
+let pages=[], currentPageId=null, nextNodeId=100, nextPageId=10, nodes=[], sidebarVisible=true;
+
+function uid(){return nextPageId++;}
+function nuid(){return nextNodeId++;}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function getNode(id){return nodes.find(n=>n.id===id);}
+function getRoots(){return nodes.filter(n=>n.parentId===null).map(n=>n.id);}
+
+/* ページ管理 */
+function newPage(title){
+  const id=uid();
+  const t=title||'新しいページ';
+  const rootId=nuid();
+  // rootノードがタイトル兼1階層目
+  const rootNode={id:rootId,parentId:null,text:t,children:[]};
+  pages.push({id,title:t,nodes:[rootNode],nextNodeId:nuid()});
+  return id;
+}
+
+function getPage(id){return pages.find(p=>p.id===id);}
+function getCurrentPage(){return getPage(currentPageId);}
+
+function switchPage(id){
+  saveCurrent();currentPageId=id;renderSidebar();renderPage();
+}
+
+function saveCurrent(){
+  const page=getCurrentPage();if(!page)return;
+  page.nodes=[...nodes];page.nextNodeId=nextNodeId;
+  // タイトルはrootノードのtextから
+  const root=nodes.find(n=>n.parentId===null);
+  if(root) page.title=root.text||'無題';
+  saveAll();
+}
+
+function deletePage(id){
+  if(pages.length<=1){alert('最後のページは削除できません');return;}
+  pages=pages.filter(p=>p.id!==id);
+  if(currentPageId===id) currentPageId=pages[0].id;
+  switchPage(currentPageId);
+}
+
+function renderSidebar(){
+  document.getElementById('page-list').innerHTML=pages.map(p=>`
+    <div class="page-item${p.id===currentPageId?' active':''}" onclick="switchPage(${p.id})">
+      <span class="page-item-title">${esc(p.title||'無題')}</span>
+      <button class="page-del" onclick="event.stopPropagation();deletePage(${p.id})" title="削除">✕</button>
+    </div>`).join('');
+}
+
+function renderPage(){
+  const page=getCurrentPage();if(!page)return;
+  nodes=page.nodes.map(n=>({...n,children:[...n.children]}));
+  nextNodeId=page.nextNodeId||100;
+  const root=nodes.find(n=>n.parentId===null);
+  document.getElementById('page-title-display').textContent=root?root.text||'無題':'無題';
+  renderTree();
+}
+
+function toggleSidebar(){
+  sidebarVisible=!sidebarVisible;
+  document.getElementById('sidebar').classList.toggle('hidden',!sidebarVisible);
+  document.getElementById('main').classList.toggle('full',!sidebarVisible);
+}
+
+function exportPDF(){saveCurrent();window.print();}
+
+/* TREE */
+function getDepth(id){
+  let d=0,node=getNode(id);
+  while(node&&node.parentId!==null){d++;node=getNode(node.parentId);}
+  return d;
+}
+
+function renderNode(id){
+  const node=getNode(id);if(!node)return'';
+  const depth=getDepth(id);
+  const isTitle=depth===0;
+  const hasChildren=node.children&&node.children.length>0;
+
+  const placeholder=isTitle?'memotreeeeへようこそ':'メモを入力…';
+  const textClass='node-text '+(isTitle?'title-text':'body-text');
+  const ulClass='node-underline '+(isTitle?'title-underline':'body-underline');
+  const bulletClass='node-bullet '+(isTitle?'title-bullet':'');
+  const addBtnClass='add-btns '+(isTitle?'title-add-btns':'');
+
+  const self=`<div class="node-self" id="ns${id}">
+    <div class="node-row">
+      <div class="node-content">
+        <span class="${bulletClass}" aria-hidden="true"></span>
+        <div class="node-text-wrap">
+          <span class="${textClass}" id="t${id}" contenteditable="true" role="${isTitle?'heading':'textbox'}" ${isTitle?'aria-level="1"':''}
+            data-placeholder="${placeholder}"
+            oninput="onText(${id},this)"
+            onkeydown="onKeyDown(${id},event,${isTitle})"
+            onblur="saveCurrent()"
+          >${esc(node.text)}</span>
+          <div class="${ulClass}"></div>
+        </div>
+        <span class="${addBtnClass}">
+          <button class="add-btn" onclick="addChild(${id})" title="子ノードを追加">↳</button>
+          <button class="add-btn" onclick="addSibling(${id})" title="同じ階層に追加">↓</button>
+          <button class="del-btn" onclick="deleteNode(${id})" title="削除">✕</button>
+        </span>
+      </div>
+    </div>
+  </div>`;
+
+  if(!hasChildren)return`<div class="node-group" data-id="${id}">${self}</div>`;
+  const ch=node.children.map(cid=>renderNode(cid)).join('');
+  return`<div class="node-group" data-id="${id}">
+    ${self}
+    <div class="connector-col" id="con${id}"><svg class="connector-svg" id="svg${id}" style="height:100px;"></svg></div>
+    <div class="children-col" id="cc${id}">${ch}</div>
+  </div>`;
+}
+
+function renderTree(){
+  document.getElementById('app').innerHTML=
+    `<div class="tree-root">${getRoots().map(id=>renderNode(id)).join('')}</div>
+     <div class="root-add"><button class="root-add-btn" onclick="addChildToRoot()">＋ 追加</button></div>`;
+  requestAnimationFrame(()=>requestAnimationFrame(drawConnectors));
+}
+
+// 「＋追加」はrootの子として追加
+function addChildToRoot(){
+  const root=nodes.find(n=>n.parentId===null);
+  if(root) addChild(root.id);
+}
+
+function drawConnectors(){
+  document.querySelectorAll('[id^="con"]').forEach(col=>{
+    const pid=parseInt(col.id.replace('con',''));
+    const node=getNode(pid);if(!node||!node.children||!node.children.length)return;
+    const svg=document.getElementById('svg'+pid);
+    const cc=document.getElementById('cc'+pid);if(!svg||!cc)return;
+    const colRect=col.getBoundingClientRect();
+    const totalH=cc.offsetHeight||100;
+    svg.setAttribute('height',totalH);svg.style.height=totalH+'px';col.style.height=totalH+'px';
+    const xL=4,xR=28,r=10,stroke='var(--border-strong)';
+    const ys=node.children.map(cid=>{
+      const grp=cc.querySelector(`[data-id="${cid}"]`);if(!grp)return null;
+      const b=grp.querySelector('.node-bullet:not(.title-bullet)');if(!b)return null;
+      const br=b.getBoundingClientRect();return br.top-colRect.top+b.offsetHeight/2;
+    }).filter(v=>v!==null);
+    if(!ys.length)return;
+    let p='';
+    if(ys.length===1){
+      p=`<path d="M${xL} ${ys[0]} L${xR} ${ys[0]}" fill="none" stroke="${stroke}" stroke-width="1"/>`;
+    } else {
+      p+=`<line x1="${xL}" y1="${ys[0]+r}" x2="${xL}" y2="${ys[ys.length-1]-r}" stroke="${stroke}" stroke-width="1"/>`;
+      ys.forEach((y,i)=>{
+        if(i===0) p+=`<path d="M${xR} ${y} L${xL+r} ${y} Q${xL} ${y} ${xL} ${y+r}" fill="none" stroke="${stroke}" stroke-width="1"/>`;
+        else if(i===ys.length-1) p+=`<path d="M${xL} ${y-r} Q${xL} ${y} ${xL+r} ${y} L${xR} ${y}" fill="none" stroke="${stroke}" stroke-width="1"/>`;
+        else p+=`<path d="M${xL} ${y-r} Q${xL} ${y} ${xL+r} ${y} L${xR} ${y}" fill="none" stroke="${stroke}" stroke-width="1"/>`;
+      });
+    }
+    svg.innerHTML=p;
+  });
+}
+
+function onText(id,el){
+  const node=getNode(id);if(!node)return;
+  node.text=el.innerText.replace(/\n/g,'');
+  // タイトルノードならヘッダーとサイドバーも更新
+  if(node.parentId===null){
+    document.getElementById('page-title-display').textContent=node.text||'無題';
+    const page=getCurrentPage();if(page) page.title=node.text||'無題';
+    renderSidebar();
+  }
+  requestAnimationFrame(drawConnectors);
+}
+
+function onKeyDown(id,e,isTitle){
+  if(e.key==='Enter'&&!e.shiftKey){
+    e.preventDefault();
+    if(isTitle){
+      // タイトルでEnter → 最初の子へフォーカス or 追加
+      const node=getNode(id);
+      if(node.children.length>0) focusNode(node.children[0]);
+      else addChild(id);
+    } else {
+      addSibling(id);
+    }
+  }
+  if(e.key==='Tab'&&!isTitle){e.preventDefault();if(e.shiftKey)unindentNode(id);else indentNode(id);}
+}
+
+function focusNode(id){
+  setTimeout(()=>{
+    const el=document.getElementById('t'+id);if(!el)return;el.focus();
+    const range=document.createRange();range.selectNodeContents(el);range.collapse(false);
+    window.getSelection().removeAllRanges();window.getSelection().addRange(range);
+  },30);
+}
+
+function addSibling(afterId){
+  const node=getNode(afterId);
+  // rootの兄弟追加は禁止
+  if(node.parentId===null) return;
+  const nn={id:nuid(),parentId:node.parentId,text:'',children:[]};nodes.push(nn);
+  const p=getNode(node.parentId);p.children.splice(p.children.indexOf(afterId)+1,0,nn.id);
+  renderTree();focusNode(nn.id);saveCurrent();
+}
+
+function addChild(parentId){
+  const nn={id:nuid(),parentId,text:'',children:[]};nodes.push(nn);
+  getNode(parentId).children.push(nn.id);renderTree();focusNode(nn.id);saveCurrent();
+}
+
+function deleteNode(id){
+  const node=getNode(id);if(node.parentId===null)return; // rootは削除不可
+  function col(nid){const n=getNode(nid);return[nid,...(n.children||[]).flatMap(c=>col(c))];}
+  const del=new Set(col(id));
+  const p=getNode(node.parentId);p.children=p.children.filter(c=>!del.has(c));
+  nodes=nodes.filter(n=>!del.has(n.id));renderTree();saveCurrent();
+}
+
+function indentNode(id){
+  const node=getNode(id);if(node.parentId===null)return;
+  const siblings=getNode(node.parentId).children;
+  const idx=siblings.indexOf(id);if(idx===0)return;
+  const prev=siblings[idx-1];siblings.splice(idx,1);
+  node.parentId=prev;getNode(prev).children.push(id);renderTree();focusNode(id);saveCurrent();
+}
+
+function unindentNode(id){
+  const node=getNode(id);if(node.parentId===null)return;
+  const parent=getNode(node.parentId);if(parent.parentId===null)return; // rootの直下は上げられない
+  const gid=parent.parentId;
+  parent.children=parent.children.filter(c=>c!==id);node.parentId=gid;
+  const gp=getNode(gid);gp.children.splice(gp.children.indexOf(parent.id)+1,0,id);
+  renderTree();focusNode(id);saveCurrent();
+}
+
+function rebuildRoots(arr){
+  arr.forEach(id=>{const n=getNode(id);if(n)n.parentId=null;});
+  nodes=[...arr.map(id=>getNode(id)).filter(Boolean),...nodes.filter(n=>n.parentId!==null)];
+}
+
+function saveAll(){
+  try{localStorage.setItem('tree-memo-v4',JSON.stringify({pages,currentPageId,nextPageId,nextNodeId}));}catch(e){}
+}
+
+function loadAll(){
+  try{
+    const d=JSON.parse(localStorage.getItem('tree-memo-v4')||'null');
+    if(d&&d.pages&&d.pages.length){
+      pages=d.pages;currentPageId=d.currentPageId||pages[0].id;
+      nextPageId=d.nextPageId||20;nextNodeId=d.nextNodeId||200;return true;
+    }
+  }catch(e){}return false;
+}
+
+if(!loadAll()){const id=newPage('memotreeeeへようこそ');currentPageId=id;}
+renderSidebar();renderPage();
+window.addEventListener('resize',drawConnectors);
+window.addEventListener('beforeunload',saveCurrent);
+</script>
+</body>
+</html>
