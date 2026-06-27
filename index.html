@@ -48,8 +48,8 @@ header{padding:12px 16px;border-bottom:0.5px solid var(--border);display:flex;al
 /* TREE */
 #content{padding:24px 20px 80px;overflow-x:auto;}
 .tree-root{display:flex;flex-direction:column;}
-.node-group{display:flex;flex-direction:row;align-items:stretch;}
-.node-self{display:flex;flex-direction:column;justify-content:flex-start;flex-shrink:0;}
+.node-group{display:flex;flex-direction:row;align-items:center;}
+.node-self{display:flex;flex-direction:column;justify-content:center;flex-shrink:0;}
 .node-row{display:flex;align-items:center;min-height:32px;padding:4px 0;}
 .node-content{display:flex;align-items:center;gap:6px;flex-shrink:0;}
 .node-bullet{width:6px;height:6px;border-radius:50%;border:1.5px solid var(--border-stronger);flex-shrink:0;cursor:pointer;transition:background 0.15s;}
@@ -64,9 +64,11 @@ header{padding:12px 16px;border-bottom:0.5px solid var(--border);display:flex;al
 .node-underline.title-underline{height:2px;background:var(--border-strong);}
 .node-text-wrap:focus-within .title-underline{background:var(--accent);}
 
-.node-text.body-text{font-size:15px;color:var(--text);}
+.node-text.body-text{font-size:15px;color:var(--text);transition:font-size 0.12s;}
 .node-underline.body-underline{height:1px;background:var(--border-strong);}
 .node-text-wrap:focus-within .body-underline{background:var(--border-stronger);}
+.node-text.body-text.focused{font-size:19px;}
+.node-text.title-text.focused{font-size:26px;}
 
 /* タイトルのbulletは非表示 */
 .node-bullet.title-bullet{display:none;}
@@ -81,7 +83,7 @@ header{padding:12px 16px;border-bottom:0.5px solid var(--border);display:flex;al
 .del-btn:hover{color:var(--danger);}
 .connector-col{width:28px;flex-shrink:0;position:relative;}
 .connector-svg{position:absolute;left:0;top:0;width:28px;pointer-events:none;}
-.children-col{display:flex;flex-direction:column;}
+.children-col{display:flex;flex-direction:column;justify-content:center;}
 .root-add{margin-top:16px;}
 .root-add-btn{font-size:12px;color:var(--text-muted);border:0.5px dashed var(--border-strong);border-radius:var(--radius);padding:5px 14px;background:transparent;cursor:pointer;display:flex;align-items:center;gap:6px;}
 .root-add-btn:hover{color:var(--text-secondary);background:var(--surface);}
@@ -105,7 +107,7 @@ header{padding:12px 16px;border-bottom:0.5px solid var(--border);display:flex;al
 <div id="sidebar">
   <div class="sidebar-header"><span class="dot"></span><h1>memotreeee</h1></div>
   <div class="page-list" id="page-list"></div>
-  <div class="sidebar-footer"><button class="new-page-btn" onclick="newPage()">＋ 新しいページ</button></div>
+  <div class="sidebar-footer"><button class="new-page-btn" onclick="newPage(null,true)">＋ 新しいページ</button></div>
 </div>
 
 <div id="main">
@@ -127,13 +129,20 @@ function getNode(id){return nodes.find(n=>n.id===id);}
 function getRoots(){return nodes.filter(n=>n.parentId===null).map(n=>n.id);}
 
 /* ページ管理 */
-function newPage(title){
+function newPage(title, switchTo){
   const id=uid();
-  const t=title||'新しいページ';
+  const t=title||'';
   const rootId=nuid();
-  // rootノードがタイトル兼1階層目
   const rootNode={id:rootId,parentId:null,text:t,children:[]};
-  pages.push({id,title:t,nodes:[rootNode],nextNodeId:nuid()});
+  const ph=title?'memotreeeeへようこそ':'timetreeee';
+  pages.push({id,title:t||ph,nodes:[rootNode],nextNodeId:nuid(),rootPlaceholder:ph});
+  if(switchTo!==false){
+    saveCurrent();
+    currentPageId=id;
+    renderSidebar();
+    renderPage();
+    setTimeout(()=>focusNode(rootId),60);
+  }
   return id;
 }
 
@@ -195,10 +204,11 @@ function getDepth(id){
 function renderNode(id){
   const node=getNode(id);if(!node)return'';
   const depth=getDepth(id);
+  const page=getCurrentPage();
   const isTitle=depth===0;
   const hasChildren=node.children&&node.children.length>0;
 
-  const placeholder=isTitle?'memotreeeeへようこそ':'メモを入力…';
+  const placeholder=isTitle?(page&&page.rootPlaceholder?page.rootPlaceholder:'timetreeee'):'メモを入力…';
   const textClass='node-text '+(isTitle?'title-text':'body-text');
   const ulClass='node-underline '+(isTitle?'title-underline':'body-underline');
   const bulletClass='node-bullet '+(isTitle?'title-bullet':'');
@@ -213,7 +223,8 @@ function renderNode(id){
             data-placeholder="${placeholder}"
             oninput="onText(${id},this)"
             onkeydown="onKeyDown(${id},event,${isTitle})"
-            onblur="saveCurrent()"
+            onfocus="onNodeFocus(${id})"
+            onblur="saveCurrent();onNodeBlur()"
           >${esc(node.text)}</span>
           <div class="${ulClass}"></div>
         </div>
@@ -295,7 +306,6 @@ function onKeyDown(id,e,isTitle){
   if(e.key==='Enter'&&!e.shiftKey){
     e.preventDefault();
     if(isTitle){
-      // タイトルでEnter → 最初の子へフォーカス or 追加
       const node=getNode(id);
       if(node.children.length>0) focusNode(node.children[0]);
       else addChild(id);
@@ -304,14 +314,51 @@ function onKeyDown(id,e,isTitle){
     }
   }
   if(e.key==='Tab'&&!isTitle){e.preventDefault();if(e.shiftKey)unindentNode(id);else indentNode(id);}
+
+  // 矢印キーナビゲーション
+  if(e.key==='ArrowUp'||e.key==='ArrowDown'||e.key==='ArrowLeft'||e.key==='ArrowRight'){
+    e.preventDefault();
+    const node=getNode(id);
+    if(e.key==='ArrowRight'){
+      // 子の最初へ
+      if(node.children&&node.children.length>0) focusNode(node.children[0]);
+    } else if(e.key==='ArrowLeft'){
+      // 親へ
+      if(node.parentId!==null) focusNode(node.parentId);
+    } else {
+      // 上下: 同じ親の兄弟間のみ移動
+      const siblings=node.parentId===null?getRoots():getNode(node.parentId).children;
+      const idx=siblings.indexOf(id);
+      if(e.key==='ArrowUp'&&idx>0) focusNode(siblings[idx-1]);
+      if(e.key==='ArrowDown'&&idx<siblings.length-1) focusNode(siblings[idx+1]);
+    }
+  }
 }
 
 function focusNode(id){
   setTimeout(()=>{
-    const el=document.getElementById('t'+id);if(!el)return;el.focus();
+    const el=document.getElementById('t'+id);if(!el)return;
+    // 前の focused を外す
+    document.querySelectorAll('.node-text.focused').forEach(e=>e.classList.remove('focused'));
+    el.classList.add('focused');
+    el.focus();
     const range=document.createRange();range.selectNodeContents(el);range.collapse(false);
     window.getSelection().removeAllRanges();window.getSelection().addRange(range);
   },30);
+}
+
+// クリック時にも focused を付ける
+function onNodeFocus(id){
+  document.querySelectorAll('.node-text.focused').forEach(e=>e.classList.remove('focused'));
+  const el=document.getElementById('t'+id);if(el)el.classList.add('focused');
+}
+function onNodeBlur(){
+  // フォーカスが別ノードに移る場合は focusNode 側で付け替えるので少し待つ
+  setTimeout(()=>{
+    if(!document.activeElement||!document.activeElement.classList.contains('node-text')){
+      document.querySelectorAll('.node-text.focused').forEach(e=>e.classList.remove('focused'));
+    }
+  },100);
 }
 
 function addSibling(afterId){
@@ -372,7 +419,7 @@ function loadAll(){
   }catch(e){}return false;
 }
 
-if(!loadAll()){const id=newPage('memotreeeeへようこそ');currentPageId=id;}
+if(!loadAll()){const id=newPage('memotreeeeへようこそ',false);currentPageId=id;}
 renderSidebar();renderPage();
 window.addEventListener('resize',drawConnectors);
 window.addEventListener('beforeunload',saveCurrent);
