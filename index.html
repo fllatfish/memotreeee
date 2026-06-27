@@ -129,12 +129,12 @@ function getNode(id){return nodes.find(n=>n.id===id);}
 function getRoots(){return nodes.filter(n=>n.parentId===null).map(n=>n.id);}
 
 /* ページ管理 */
-function newPage(title, switchTo){
+function newPage(title, switchTo, placeholder){
   const id=uid();
   const t=title||'';
   const rootId=nuid();
   const rootNode={id:rootId,parentId:null,text:t,children:[]};
-  const ph=title?'memotreeeeへようこそ':'timetreeee';
+  const ph=placeholder||'timetreeee';
   pages.push({id,title:t||ph,nodes:[rootNode],nextNodeId:nuid(),rootPlaceholder:ph});
   if(switchTo!==false){
     saveCurrent();
@@ -419,7 +419,7 @@ function loadAll(){
   }catch(e){}return false;
 }
 
-if(!loadAll()){const id=newPage('memotreeeeへようこそ',false);currentPageId=id;}
+if(!loadAll()){const id=newPage('',false,'memotreeeeへようこそ');currentPageId=id;}
 renderSidebar();renderPage();
 window.addEventListener('resize',drawConnectors);
 window.addEventListener('beforeunload',saveCurrent);
