@@ -114,13 +114,51 @@ header{padding:12px 16px;border-bottom:0.5px solid var(--border);display:flex;al
   <header>
     <button id="sidebar-toggle" onclick="toggleSidebar()" aria-label="サイドバー">☰</button>
     <span id="page-title-display">無題</span>
-    <button class="hbtn" onclick="exportPDF()">⬇ PDF</button>
+    <div style="display:flex;gap:4px;align-items:center;">
+      <button class="hbtn" id="undo-btn" onclick="undo()" title="元に戻す (Ctrl+Z)" disabled>↩ 戻す</button>
+      <button class="hbtn" id="redo-btn" onclick="redo()" title="やり直す (Ctrl+Y)" disabled>↪ 進む</button>
+      <button class="hbtn" onclick="exportPDF()">⬇ PDF</button>
+    </div>
   </header>
   <div id="content"><div id="app"></div></div>
 </div>
 
 <script>
 let pages=[], currentPageId=null, nextNodeId=100, nextPageId=10, nodes=[], sidebarVisible=true;
+
+/* UNDO/REDO */
+let undoStack=[], redoStack=[];
+
+function snapshot(){
+  // 現在のnodesの深いコピーをスタックに積む
+  undoStack.push(JSON.stringify({nodes,nextNodeId}));
+  if(undoStack.length>50) undoStack.shift();
+  redoStack=[];
+  updateUndoButtons();
+}
+
+function undo(){
+  if(!undoStack.length) return;
+  redoStack.push(JSON.stringify({nodes,nextNodeId}));
+  const state=JSON.parse(undoStack.pop());
+  nodes=state.nodes; nextNodeId=state.nextNodeId;
+  renderTree(); saveCurrent(); updateUndoButtons();
+}
+
+function redo(){
+  if(!redoStack.length) return;
+  undoStack.push(JSON.stringify({nodes,nextNodeId}));
+  const state=JSON.parse(redoStack.pop());
+  nodes=state.nodes; nextNodeId=state.nextNodeId;
+  renderTree(); saveCurrent(); updateUndoButtons();
+}
+
+function updateUndoButtons(){
+  const u=document.getElementById('undo-btn');
+  const r=document.getElementById('redo-btn');
+  if(u) u.disabled=undoStack.length===0;
+  if(r) r.disabled=redoStack.length===0;
+}
 
 function uid(){return nextPageId++;}
 function nuid(){return nextNodeId++;}
@@ -300,10 +338,13 @@ function drawConnectors(){
   });
 }
 
+let _textSnapshotTimer=null;
 function onText(id,el){
   const node=getNode(id);if(!node)return;
+  // 入力開始から300ms以上間隔が空いたらsnapshotを取る（debounce）
+  clearTimeout(_textSnapshotTimer);
+  _textSnapshotTimer=setTimeout(snapshot, 300);
   node.text=el.innerText.replace(/\n/g,'');
-  // タイトルノードならヘッダーとサイドバーも更新
   if(node.parentId===null){
     document.getElementById('page-title-display').textContent=node.text||'無題';
     const page=getCurrentPage();if(page) page.title=node.text||'無題';
@@ -373,20 +414,22 @@ function onNodeBlur(){
 
 function addSibling(afterId){
   const node=getNode(afterId);
-  // rootの兄弟追加は禁止
   if(node.parentId===null) return;
+  snapshot();
   const nn={id:nuid(),parentId:node.parentId,text:'',children:[]};nodes.push(nn);
   const p=getNode(node.parentId);p.children.splice(p.children.indexOf(afterId)+1,0,nn.id);
   renderTree();focusNode(nn.id);saveCurrent();
 }
 
 function addChild(parentId){
+  snapshot();
   const nn={id:nuid(),parentId,text:'',children:[]};nodes.push(nn);
   getNode(parentId).children.push(nn.id);renderTree();focusNode(nn.id);saveCurrent();
 }
 
 function deleteNode(id){
-  const node=getNode(id);if(node.parentId===null)return; // rootは削除不可
+  const node=getNode(id);if(node.parentId===null)return;
+  snapshot();
   function col(nid){const n=getNode(nid);return[nid,...(n.children||[]).flatMap(c=>col(c))];}
   const del=new Set(col(id));
   const p=getNode(node.parentId);p.children=p.children.filter(c=>!del.has(c));
@@ -395,6 +438,7 @@ function deleteNode(id){
 
 function indentNode(id){
   const node=getNode(id);if(node.parentId===null)return;
+  snapshot();
   const siblings=getNode(node.parentId).children;
   const idx=siblings.indexOf(id);if(idx===0)return;
   const prev=siblings[idx-1];siblings.splice(idx,1);
@@ -403,7 +447,8 @@ function indentNode(id){
 
 function unindentNode(id){
   const node=getNode(id);if(node.parentId===null)return;
-  const parent=getNode(node.parentId);if(parent.parentId===null)return; // rootの直下は上げられない
+  const parent=getNode(node.parentId);if(parent.parentId===null)return;
+  snapshot();
   const gid=parent.parentId;
   parent.children=parent.children.filter(c=>c!==id);node.parentId=gid;
   const gp=getNode(gid);gp.children.splice(gp.children.indexOf(parent.id)+1,0,id);
@@ -418,6 +463,12 @@ function rebuildRoots(arr){
 function saveAll(){
   try{localStorage.setItem('tree-memo-v4',JSON.stringify({pages,currentPageId,nextPageId,nextNodeId}));}catch(e){}
 }
+
+// Ctrl+Z / Ctrl+Y ショートカット
+document.addEventListener('keydown',e=>{
+  if((e.ctrlKey||e.metaKey)&&e.key==='z'&&!e.shiftKey){e.preventDefault();undo();}
+  if((e.ctrlKey||e.metaKey)&&(e.key==='y'||(e.key==='z'&&e.shiftKey))){e.preventDefault();redo();}
+});
 
 function loadAll(){
   try{
