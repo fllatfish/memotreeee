@@ -55,7 +55,7 @@ header{padding:12px 16px;border-bottom:0.5px solid var(--border);display:flex;al
 .node-bullet{width:6px;height:6px;border-radius:50%;border:1.5px solid var(--border-stronger);flex-shrink:0;cursor:pointer;transition:background 0.15s;}
 .node-bullet:hover{background:var(--border-stronger);}
 .node-text-wrap{position:relative;display:inline-flex;flex-direction:column;}
-.node-text{border:none;outline:none;background:transparent;line-height:1.5;white-space:nowrap;font-family:inherit;min-width:20px;padding:0 0 2px 0;}
+.node-text{border:none;outline:none;background:transparent;line-height:1.5;white-space:nowrap;font-family:inherit;min-width:20px;min-height:1.5em;padding:0 0 2px 0;display:inline-block;}
 .node-text:empty:before{content:attr(data-placeholder);color:var(--text-muted);pointer-events:none;}
 .node-underline{width:100%;margin-top:1px;transition:background 0.15s;}
 
@@ -241,8 +241,11 @@ function renderNode(id){
   const ch=node.children.map(cid=>renderNode(cid)).join('');
   return`<div class="node-group" data-id="${id}">
     ${self}
-    <div class="connector-col" id="con${id}"><svg class="connector-svg" id="svg${id}" style="height:100px;"></svg></div>
-    <div class="children-col" id="cc${id}">${ch}</div>
+    <div class="connector-col" id="con${id}"></div>
+    <div class="children-col" id="cc${id}" style="position:relative;">
+      <svg class="connector-svg" id="svg${id}" style="position:absolute;left:-28px;top:0;width:28px;height:100%;pointer-events:none;"></svg>
+      ${ch}
+    </div>
   </div>`;
 }
 
@@ -250,7 +253,8 @@ function renderTree(){
   document.getElementById('app').innerHTML=
     `<div class="tree-root">${getRoots().map(id=>renderNode(id)).join('')}</div>
      <div class="root-add"><button class="root-add-btn" onclick="addChildToRoot()">＋ 追加</button></div>`;
-  requestAnimationFrame(()=>requestAnimationFrame(drawConnectors));
+  // DOMが完全にレイアウトされてから線を描く
+  setTimeout(drawConnectors, 50);
 }
 
 // 「＋追加」はrootの子として追加
@@ -260,20 +264,26 @@ function addChildToRoot(){
 }
 
 function drawConnectors(){
-  document.querySelectorAll('[id^="con"]').forEach(col=>{
-    const pid=parseInt(col.id.replace('con',''));
+  document.querySelectorAll('[id^="svg"]').forEach(svg=>{
+    const pid=parseInt(svg.id.replace('svg',''));
     const node=getNode(pid);if(!node||!node.children||!node.children.length)return;
-    const svg=document.getElementById('svg'+pid);
-    const cc=document.getElementById('cc'+pid);if(!svg||!cc)return;
-    const colRect=col.getBoundingClientRect();
+    const cc=document.getElementById('cc'+pid);if(!cc)return;
+
     const totalH=cc.offsetHeight||100;
-    svg.setAttribute('height',totalH);svg.style.height=totalH+'px';col.style.height=totalH+'px';
+    svg.setAttribute('viewBox',`0 0 28 ${totalH}`);
+    svg.setAttribute('height',totalH);
+    svg.style.height=totalH+'px';
+
+    const ccRect=cc.getBoundingClientRect();
     const xL=4,xR=28,r=10,stroke='var(--border-strong)';
+
     const ys=node.children.map(cid=>{
-      const grp=cc.querySelector(`[data-id="${cid}"]`);if(!grp)return null;
+      const grp=cc.querySelector(`:scope > [data-id="${cid}"]`);if(!grp)return null;
       const b=grp.querySelector('.node-bullet:not(.title-bullet)');if(!b)return null;
-      const br=b.getBoundingClientRect();return br.top-colRect.top+b.offsetHeight/2;
+      const bRect=b.getBoundingClientRect();
+      return bRect.top - ccRect.top + b.offsetHeight/2;
     }).filter(v=>v!==null);
+
     if(!ys.length)return;
     let p='';
     if(ys.length===1){
@@ -299,7 +309,7 @@ function onText(id,el){
     const page=getCurrentPage();if(page) page.title=node.text||'無題';
     renderSidebar();
   }
-  requestAnimationFrame(drawConnectors);
+  requestAnimationFrame(()=>setTimeout(drawConnectors,20));
 }
 
 function onKeyDown(id,e,isTitle){
