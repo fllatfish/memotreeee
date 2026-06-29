@@ -672,6 +672,19 @@ function loadLocal(){
 /* ── RICH TEXT ── */
 let currentColor='#1a1a18';
 let currentHighlight='#FEF08A';
+let savedRange=null;
+
+function saveSelection(){
+  const sel=window.getSelection();
+  if(sel&&sel.rangeCount>0) savedRange=sel.getRangeAt(0).cloneRange();
+}
+
+function restoreSelection(){
+  if(!savedRange) return;
+  const sel=window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(savedRange);
+}
 
 function showToolbar(x,y){
   const tb=document.getElementById('format-toolbar');
@@ -697,12 +710,14 @@ function updateToolbarState(){
 }
 
 function execFmt(cmd){
+  restoreSelection();
   document.execCommand(cmd,false,null);
   updateToolbarState();
   saveCurrent();
 }
 
 function toggleColorPicker(){
+  saveSelection();
   const p=document.getElementById('color-picker');
   const h=document.getElementById('highlight-picker');
   h.classList.remove('visible');
@@ -710,6 +725,7 @@ function toggleColorPicker(){
 }
 
 function toggleHighlightPicker(){
+  saveSelection();
   const p=document.getElementById('highlight-picker');
   const c=document.getElementById('color-picker');
   c.classList.remove('visible');
@@ -720,6 +736,8 @@ function setColor(color){
   currentColor=color;
   document.getElementById('fmt-color-bar').style.background=color;
   document.getElementById('fmt-color-letter').style.color=color;
+  restoreSelection();
+  document.execCommand('styleWithCSS',false,true);
   document.execCommand('foreColor',false,color);
   document.getElementById('color-picker').classList.remove('visible');
   saveCurrent();
@@ -728,11 +746,9 @@ function setColor(color){
 function setHighlight(color){
   currentHighlight=color;
   document.getElementById('fmt-highlight-bar').style.background=color==='transparent'?'var(--border-strong)':color;
-  if(color==='transparent'){
-    document.execCommand('hiliteColor',false,'transparent');
-  } else {
-    document.execCommand('hiliteColor',false,color);
-  }
+  restoreSelection();
+  document.execCommand('styleWithCSS',false,true);
+  document.execCommand('hiliteColor',false,color==='transparent'?'rgba(0,0,0,0)':color);
   document.getElementById('highlight-picker').classList.remove('visible');
   saveCurrent();
 }
@@ -745,13 +761,15 @@ document.addEventListener('selectionchange',()=>{
   const range=sel.getRangeAt(0);
   const node=range.startContainer.parentElement;
   if(!node||!node.closest('.node-text')){hideToolbar();return;}
+  saveSelection();
   const rect=range.getBoundingClientRect();
   showToolbar(rect.left+rect.width/2,rect.top+window.scrollY);
 });
 
 document.addEventListener('mousedown',e=>{
   const tb=document.getElementById('format-toolbar');
-  if(!tb.contains(e.target)) hideToolbar();
+  if(tb.contains(e.target)){e.preventDefault();return;}
+  hideToolbar();
 });
 
 document.addEventListener('keydown',e=>{
