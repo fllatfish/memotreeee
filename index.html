@@ -195,9 +195,8 @@ function setSyncStatus(msg){
 let syncTimer=null;
 
 async function syncToCloud(){
-  if(!currentUser){console.log('[sync] ユーザーなし');return;}
+  if(!currentUser) return;
   setSyncStatus('同期中…');
-  console.log('[sync] 開始 user=',currentUser.id,'pages=',pages.length);
   try{
     for(const page of pages){
       const row={
@@ -209,15 +208,13 @@ async function syncToCloud(){
         root_placeholder:page.rootPlaceholder||'timetreeee',
         updated_at:new Date().toISOString()
       };
-      console.log('[sync] upsert page_id=',page.id);
-      const {data,error}=await sb.from('pages').upsert(row,{onConflict:'user_id,page_id'});
-      if(error){console.error('[sync] エラー',error);throw error;}
-      console.log('[sync] 成功',data);
+      const {error}=await sb.from('pages').upsert(row,{onConflict:'user_id,page_id'});
+      if(error) throw error;
     }
     setSyncStatus('✓ 同期済み');
   }catch(e){
     setSyncStatus('⚠ 同期失敗');
-    console.error('[sync] 失敗',e);
+    console.error(e);
   }
 }
 
@@ -323,7 +320,6 @@ function switchPage(id){
 
 function saveCurrent(){
   const page=getCurrentPage();if(!page)return;
-  console.log('[save] saveCurrent page=',page.id,'user=',currentUser?.id);
   page.nodes=[...nodes]; page.nextNodeId=nextNodeId;
   const root=nodes.find(n=>n.parentId===null);
   if(root) page.title=root.text||'無題';
@@ -332,7 +328,6 @@ function saveCurrent(){
 }
 
 function scheduleSave(){
-  console.log('[schedule] スケジュール登録 user=',currentUser?.id);
   clearTimeout(syncTimer);
   syncTimer=setTimeout(syncToCloud,1500);
 }
