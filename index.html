@@ -199,8 +199,9 @@ function scheduleSave(){
 }
 
 async function syncToCloud(){
-  if(!currentUser) return;
+  if(!currentUser){console.log('[sync] ユーザーなし');return;}
   setSyncStatus('同期中…');
+  console.log('[sync] 開始 user=',currentUser.id,'pages=',pages.length);
   try{
     for(const page of pages){
       const row={
@@ -212,12 +213,15 @@ async function syncToCloud(){
         root_placeholder:page.rootPlaceholder||'timetreeee',
         updated_at:new Date().toISOString()
       };
-      await sb.from('pages').upsert(row,{onConflict:'user_id,page_id'});
+      console.log('[sync] upsert page_id=',page.id);
+      const {data,error}=await sb.from('pages').upsert(row,{onConflict:'user_id,page_id'});
+      if(error){console.error('[sync] エラー',error);throw error;}
+      console.log('[sync] 成功',data);
     }
     setSyncStatus('✓ 同期済み');
   }catch(e){
     setSyncStatus('⚠ 同期失敗');
-    console.error(e);
+    console.error('[sync] 失敗',e);
   }
 }
 
