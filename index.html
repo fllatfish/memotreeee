@@ -353,21 +353,25 @@ let pages=[], currentPageId=null, nextNodeId=100, nextPageId=10, nodes=[], sideb
 /* UNDO/REDO */
 let undoStack=[], redoStack=[];
 function snapshot(){
-  undoStack.push(JSON.stringify({nodes,nextNodeId}));
+  // nodes の深いコピー（htmlフィールドも含む）
+  undoStack.push(JSON.stringify({nodes:nodes.map(n=>({...n})),nextNodeId}));
   if(undoStack.length>50) undoStack.shift();
   redoStack=[];
   updateUndoButtons();
 }
 function undo(){
   if(!undoStack.length) return;
-  redoStack.push(JSON.stringify({nodes,nextNodeId}));
+  // 現在状態をredoに積む前にDOMからhtmlを最新化
+  syncHtmlFromDom();
+  redoStack.push(JSON.stringify({nodes:nodes.map(n=>({...n})),nextNodeId}));
   const s=JSON.parse(undoStack.pop());
   nodes=s.nodes; nextNodeId=s.nextNodeId;
   renderTree(); saveCurrent(); updateUndoButtons();
 }
 function redo(){
   if(!redoStack.length) return;
-  undoStack.push(JSON.stringify({nodes,nextNodeId}));
+  syncHtmlFromDom();
+  undoStack.push(JSON.stringify({nodes:nodes.map(n=>({...n})),nextNodeId}));
   const s=JSON.parse(redoStack.pop());
   nodes=s.nodes; nextNodeId=s.nextNodeId;
   renderTree(); saveCurrent(); updateUndoButtons();
@@ -377,6 +381,13 @@ function updateUndoButtons(){
   const r=document.getElementById('redo-btn');
   if(u) u.disabled=undoStack.length===0;
   if(r) r.disabled=redoStack.length===0;
+}
+// DOMの現在のhtmlをnodesに同期
+function syncHtmlFromDom(){
+  nodes.forEach(n=>{
+    const el=document.getElementById('t'+n.id);
+    if(el){n.html=el.innerHTML;n.text=el.innerText.replace(/\n/g,'');}
+  });
 }
 
 function uid(){return nextPageId++;}
@@ -558,11 +569,18 @@ function drawConnectors(){
 }
 
 let _textSnapshotTimer=null;
+let _lastSnapshotText='';
 function onText(id,el){
   const node=getNode(id);if(!node)return;
-  clearTimeout(_textSnapshotTimer);
-  _textSnapshotTimer=setTimeout(snapshot,300);
-  // innerHTMLでリッチテキストを保持、テキストはinnerTextで
+  // 内容が変わり始めた最初のキーストロークでsnapshotを取る
+  const currentHtml=el.innerHTML;
+  if(_lastSnapshotText!==currentHtml){
+    clearTimeout(_textSnapshotTimer);
+    _textSnapshotTimer=setTimeout(()=>{
+      snapshot();
+      _lastSnapshotText=el.innerHTML;
+    },800);
+  }
   node.text=el.innerText.replace(/\n/g,'');
   node.html=el.innerHTML;
   if(node.parentId===null){
