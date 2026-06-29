@@ -238,6 +238,7 @@ header{padding:12px 16px;border-bottom:0.5px solid var(--border);display:flex;al
     <div style="display:flex;gap:4px;align-items:center;">
       <button class="hbtn" id="undo-btn" onclick="undo()" title="元に戻す (Ctrl+Z)" disabled>↩ 戻す</button>
       <button class="hbtn" id="redo-btn" onclick="redo()" title="やり直す (Ctrl+Y)" disabled>↪ 進む</button>
+      <button class="hbtn" onclick="clearAllFormat()" title="全ノードの書式を削除">✕ 全書式削除</button>
       <button class="hbtn" onclick="exportPDF()">⬇ PDF</button>
     </div>
   </header>
@@ -752,9 +753,22 @@ function toggleHighlightPicker(){
   p.classList.toggle('visible');
 }
 
+function clearAllFormat(){
+  if(!confirm('このページの全ノードの書式（太字・文字色・マーカー）を削除しますか？')) return;
+  snapshot();
+  nodes.forEach(n=>{
+    // htmlからタグを除いてプレーンテキストだけ残す
+    const tmp=document.createElement('div');
+    tmp.innerHTML=n.html||n.text||'';
+    const plain=tmp.innerText||tmp.textContent||'';
+    n.text=plain;
+    n.html=plain;
+  });
+  renderTree();saveCurrent();
+}
+
 function clearFormat(){
   restoreSelection();
-  document.execCommand('styleWithCSS',false,false);
   document.execCommand('removeFormat',false,null);
   document.getElementById('color-picker').classList.remove('visible');
   document.getElementById('highlight-picker').classList.remove('visible');
