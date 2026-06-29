@@ -22,7 +22,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 #login-screen{display:none;position:fixed;inset:0;background:var(--bg);z-index:100;flex-direction:column;align-items:center;justify-content:center;gap:24px;}
 #login-screen.visible{display:flex;}
 .login-logo{font-size:28px;font-weight:700;color:var(--text);}
-.login-logo span{color:var(--accent);}
+.login-logo span{color:#7EC845;}
 .login-desc{font-size:14px;color:var(--text-muted);}
 .google-btn{display:flex;align-items:center;gap:10px;padding:10px 20px;border-radius:8px;border:0.5px solid var(--border-strong);background:var(--bg);color:var(--text);cursor:pointer;font-size:14px;font-weight:500;}
 .google-btn:hover{background:var(--surface);}
@@ -205,7 +205,7 @@ async function syncToCloud(){
         title:page.title||'',
         nodes:page.nodes,
         next_node_id:page.nextNodeId||100,
-        root_placeholder:page.rootPlaceholder||'timetreeee',
+        root_placeholder:page.rootPlaceholder||'memotreeee',
         updated_at:new Date().toISOString()
       };
       const {error}=await sb.from('pages').upsert(row,{onConflict:'user_id,page_id'});
@@ -233,7 +233,7 @@ async function loadFromCloud(){
         title:r.title,
         nodes:r.nodes,
         nextNodeId:r.next_node_id,
-        rootPlaceholder:r.root_placeholder||'timetreeee'
+        rootPlaceholder:r.root_placeholder||'memotreeee'
       }));
       nextPageId=Math.max(...pages.map(p=>p.id))+1;
       nextNodeId=Math.max(...pages.map(p=>p.nextNodeId||100))+1;
@@ -299,7 +299,7 @@ function newPage(title, switchTo, placeholder){
   const t=title||'';
   const rootId=nuid();
   const rootNode={id:rootId,parentId:null,text:t,children:[]};
-  const ph=placeholder||'timetreeee';
+  const ph=placeholder||'memotreeee';
   pages.push({id,title:t||ph,nodes:[rootNode],nextNodeId:nuid(),rootPlaceholder:ph});
   if(switchTo!==false){
     saveCurrent();
@@ -378,7 +378,7 @@ function renderNode(id){
   const page=getCurrentPage();
   const isTitle=depth===0;
   const hasChildren=node.children&&node.children.length>0;
-  const placeholder=isTitle?(page&&page.rootPlaceholder||'timetreeee'):'メモを入力…';
+  const placeholder=isTitle?(page&&page.rootPlaceholder||'memotreeee'):'メモを入力…';
   const textClass='node-text '+(isTitle?'title-text':'body-text');
   const ulClass='node-underline '+(isTitle?'title-underline':'body-underline');
   const bulletClass='node-bullet '+(isTitle?'title-bullet':'');
