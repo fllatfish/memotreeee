@@ -669,8 +669,17 @@ function onKeyDown(id,e,isTitle){
     if(e.key==='ArrowDown'&&idx<siblings.length-1) focusNode(siblings[idx+1]);
   }
 
-  // 左右：編集モード中はカーソル移動、端でノード移動
+  // 左右：編集モード中はカーソル移動、端でノード選択（navモード）
   if(e.key==='ArrowLeft'||e.key==='ArrowRight'){
+    // navモード中は即ノード移動
+    if(_isNavMode){
+      e.preventDefault();
+      const node=getNode(id);
+      if(e.key==='ArrowLeft'&&node.parentId!==null) focusNode(node.parentId);
+      if(e.key==='ArrowRight'&&node.children&&node.children.length>0) focusNode(node.children[0]);
+      return;
+    }
+    // 編集モード中：端に到達したらnavモードへ（移動はしない）
     const node=getNode(id);
     const sel=window.getSelection();
     if(!sel||!sel.rangeCount) return;
@@ -685,45 +694,46 @@ function onKeyDown(id,e,isTitle){
       );
       if(atStart&&node.parentId!==null){
         e.preventDefault();
-        focusNode(node.parentId);
+        setNavMode(id); // 端でnavモードへ、まだ移動しない
       }
     } else {
       const txt=el.innerText||'';
       const atEnd=range.collapsed&&(
         range.startOffset===txt.length||
-        (el.lastChild&&range.startContainer===el.lastChild&&range.startOffset===(el.lastChild.textContent||'').length)
+        (el.lastChild&&range.startContainer===el.lastChild&&
+          range.startOffset===(el.lastChild.textContent||'').length)
       );
       if(atEnd&&node.children&&node.children.length>0){
         e.preventDefault();
-        focusNode(node.children[0]);
+        setNavMode(id); // 端でnavモードへ、まだ移動しない
       }
     }
   }
 }
 
-let _isNavMode=false; // true=ノード移動モード, false=テキスト編集モード
+let _isNavMode=false;
+let _navNodeId=null;
 
 function setNavMode(id){
   _isNavMode=true;
+  _navNodeId=id;
   clearNodeModes();
   const grp=document.querySelector(`.node-group[data-id="${id}"]`);
   if(grp) grp.classList.add('nav-selected');
-  // テキストのfocused（文字拡大）はnavモードでは外す
   document.querySelectorAll('.node-text.focused').forEach(e=>e.classList.remove('focused'));
 }
 
 function setEditMode(id){
   _isNavMode=false;
-  clearNodeModes();
-  const grp=document.querySelector(`.node-group[data-id="${id}"]`);
-  if(grp) grp.classList.add('editing');
+  _navNodeId=null;
+  clearNodeModes(); // 緑枠を消す
   const el=document.getElementById('t'+id);
   if(el) el.classList.add('focused');
 }
 
 function clearNodeModes(){
   document.querySelectorAll('.node-group.nav-selected').forEach(e=>e.classList.remove('nav-selected'));
-  document.querySelectorAll('.node-group.editing').forEach(e=>e.classList.remove('editing'));
+  document.querySelectorAll('.node-text.focused').forEach(e=>e.classList.remove('focused'));
 }
 
 function focusNode(id){
@@ -737,8 +747,8 @@ function focusNode(id){
 }
 
 function onNodeFocus(id){
-  // クリックで直接フォーカスした場合は編集モード
-  if(!_isNavMode) setEditMode(id);
+  // クリックは編集モード（緑枠なし）
+  setEditMode(id);
 }
 
 function onNodeBlur(){
@@ -746,7 +756,7 @@ function onNodeBlur(){
     if(!document.activeElement||!document.activeElement.classList.contains('node-text')){
       clearNodeModes();
       _isNavMode=false;
-      document.querySelectorAll('.node-text.focused').forEach(e=>e.classList.remove('focused'));
+      _navNodeId=null;
     }
   },100);
 }
@@ -836,13 +846,16 @@ function showRoomActive(){
 async function createRoom(){
   const code=generateRoomCode();
   const root=nodes.find(n=>n.parentId===null);
-  const {error}=await sb.from('rooms').insert({
+  const {data,error}=await sb.from('rooms').insert({
     code,
-    owner_id:currentUser.id,
     title:root?root.text||'共有ツリー':'共有ツリー',
     nodes:nodes
-  });
-  if(error){alert('ルームの作成に失敗しました');console.error(error);return;}
+  }).select().single();
+  if(error){
+    console.error('ルーム作成エラー詳細:', JSON.stringify(error));
+    alert('ルームの作成に失敗しました\n'+error.message);
+    return;
+  }
   currentRoomCode=code;
   showRoomActive();
   subscribeRoom(code);
