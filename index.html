@@ -679,35 +679,23 @@ function onKeyDown(id,e,isTitle){
       if(e.key==='ArrowRight'&&node.children&&node.children.length>0) focusNode(node.children[0]);
       return;
     }
-    // 編集モード中：端に到達したらnavモードへ（移動はしない）
-    const node=getNode(id);
-    const sel=window.getSelection();
-    if(!sel||!sel.rangeCount) return;
-    const range=sel.getRangeAt(0);
-    const el=document.getElementById('t'+id);
-    if(!el) return;
+    // 編集モード中：端に到達したらnavモードへ（ブラウザのカーソル移動後に判定）
+    setTimeout(()=>{
+      const node=getNode(id);
+      const sel=window.getSelection();
+      if(!sel||!sel.rangeCount) return;
+      const range=sel.getRangeAt(0);
+      const el=document.getElementById('t'+id);
+      if(!el||!range.collapsed) return;
 
-    if(e.key==='ArrowLeft'){
-      const atStart=range.collapsed&&range.startOffset===0&&(
-        range.startContainer===el||
-        (el.firstChild&&range.startContainer===el.firstChild)
-      );
-      if(atStart&&node.parentId!==null){
-        e.preventDefault();
-        setNavMode(id); // 端でnavモードへ、まだ移動しない
+      if(e.key==='ArrowLeft'){
+        const atStart=isAtStart(el,range);
+        if(atStart&&node.parentId!==null) setNavMode(id);
+      } else {
+        const atEnd=isAtEnd(el,range);
+        if(atEnd&&node.children&&node.children.length>0) setNavMode(id);
       }
-    } else {
-      const txt=el.innerText||'';
-      const atEnd=range.collapsed&&(
-        range.startOffset===txt.length||
-        (el.lastChild&&range.startContainer===el.lastChild&&
-          range.startOffset===(el.lastChild.textContent||'').length)
-      );
-      if(atEnd&&node.children&&node.children.length>0){
-        e.preventDefault();
-        setNavMode(id); // 端でnavモードへ、まだ移動しない
-      }
-    }
+    },0);
   }
 }
 
@@ -734,6 +722,24 @@ function setEditMode(id){
 function clearNodeModes(){
   document.querySelectorAll('.node-group.nav-selected').forEach(e=>e.classList.remove('nav-selected'));
   document.querySelectorAll('.node-text.focused').forEach(e=>e.classList.remove('focused'));
+}
+
+function isAtStart(el, range){
+  if(!range.collapsed) return false;
+  // rangeをel先頭のrangeと比較
+  const start=document.createRange();
+  start.selectNodeContents(el);
+  start.collapse(true);
+  return range.compareBoundaryPoints(Range.START_TO_START, start)===0;
+}
+
+function isAtEnd(el, range){
+  if(!range.collapsed) return false;
+  // rangeをel末尾のrangeと比較
+  const end=document.createRange();
+  end.selectNodeContents(el);
+  end.collapse(false);
+  return range.compareBoundaryPoints(Range.END_TO_END, end)===0;
 }
 
 function focusNode(id){
