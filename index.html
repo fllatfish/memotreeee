@@ -132,6 +132,17 @@ header{padding:12px 16px;border-bottom:0.5px solid var(--border);display:flex;al
 .node-text-wrap:focus-within .body-underline{background:var(--border-stronger);}
 .node-text.body-text.focused{font-size:19px;}
 .node-text.title-text.focused{font-size:26px;}
+
+/* ノード移動モード：緑の外枠 */
+.node-group.nav-selected>.node-self>.node-row{
+  outline:2px solid #7EC845;
+  border-radius:6px;
+  outline-offset:2px;
+}
+/* 編集モード中は外枠なし */
+.node-group.editing>.node-self>.node-row{
+  outline:none;
+}
 .add-btns{display:none;gap:2px;align-items:center;margin-left:6px;flex-shrink:0;}
 .node-row:hover .add-btns,.node-content:focus-within .add-btns{display:flex;}
 .title-add-btns{display:none!important;}
@@ -227,7 +238,40 @@ header{padding:12px 16px;border-bottom:0.5px solid var(--border);display:flex;al
   <div class="sidebar-footer">
     <div class="sync-status" id="sync-status"></div>
     <button class="new-page-btn" onclick="newPage(null,true)">＋ 新しいページ</button>
+    <button class="new-page-btn" onclick="openRoomModal()" style="border-color:#7EC845;color:#7EC845;">🌿 共有ルーム</button>
     <button class="logout-btn" onclick="logout()">ログアウト</button>
+  </div>
+</div>
+
+<!-- 共有ルームモーダル -->
+<div id="room-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:200;align-items:center;justify-content:center;">
+  <div style="background:var(--bg);border-radius:12px;padding:24px;width:320px;border:0.5px solid var(--border);position:relative;">
+    <button onclick="closeRoomModal()" style="position:absolute;top:12px;right:12px;border:none;background:transparent;color:var(--text-muted);cursor:pointer;font-size:16px;">✕</button>
+    <div style="font-size:15px;font-weight:600;margin-bottom:4px;">🌿 共有ルーム</div>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:20px;">複数人で同じツリーをリアルタイム編集</div>
+
+    <div id="room-view-join">
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">ルームコードを入力して参加</div>
+      <div style="display:flex;gap:6px;margin-bottom:16px;">
+        <input id="room-code-input" placeholder="12桁のコード" maxlength="12"
+          style="flex:1;padding:8px 10px;border-radius:6px;border:0.5px solid var(--border-strong);background:var(--bg);color:var(--text);font-size:14px;font-family:monospace;letter-spacing:0.1em;outline:none;">
+        <button onclick="joinRoom()" style="padding:8px 14px;border-radius:6px;border:none;background:var(--accent);color:#fff;cursor:pointer;font-size:13px;">参加</button>
+      </div>
+      <div style="border-top:0.5px solid var(--border);padding-top:16px;">
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">または新しいルームを作成</div>
+        <button onclick="createRoom()" style="width:100%;padding:8px;border-radius:6px;border:0.5px solid var(--border-strong);background:transparent;color:var(--text);cursor:pointer;font-size:13px;">＋ ルームを作成</button>
+      </div>
+    </div>
+
+    <div id="room-view-active" style="display:none;">
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">現在のルームコード</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
+        <div id="room-code-display" style="flex:1;font-size:18px;font-weight:700;font-family:monospace;letter-spacing:0.15em;color:var(--text);background:var(--surface);padding:10px 14px;border-radius:8px;border:0.5px solid var(--border);"></div>
+        <button onclick="copyRoomCode()" style="padding:8px 12px;border-radius:6px;border:0.5px solid var(--border-strong);background:transparent;color:var(--text-secondary);cursor:pointer;font-size:12px;" id="copy-btn">コピー</button>
+      </div>
+      <div id="room-members" style="font-size:11px;color:var(--text-muted);margin-bottom:16px;"></div>
+      <button onclick="leaveRoom()" style="width:100%;padding:8px;border-radius:6px;border:0.5px solid var(--danger);background:transparent;color:var(--danger);cursor:pointer;font-size:13px;">ルームを退出</button>
+    </div>
   </div>
 </div>
 
@@ -430,7 +474,12 @@ function saveCurrent(){
   const root=nodes.find(n=>n.parentId===null);
   if(root) page.title=root.text||'無題';
   saveLocal();
-  scheduleSave();
+  if(currentRoomCode){
+    clearTimeout(roomSaveTimer);
+    roomSaveTimer=setTimeout(saveToRoom,800);
+  } else {
+    scheduleSave();
+  }
 }
 
 function scheduleSave(){
@@ -595,6 +644,11 @@ function onText(id,el){
 }
 
 function onKeyDown(id,e,isTitle){
+  // 文字入力で編集モードへ切り替え
+  if(!e.ctrlKey&&!e.metaKey&&!e.altKey&&e.key.length===1&&_isNavMode){
+    setEditMode(id);
+  }
+
   if(e.key==='Enter'&&!e.shiftKey){
     e.preventDefault();
     if(isTitle){
@@ -604,38 +658,96 @@ function onKeyDown(id,e,isTitle){
     } else { addSibling(id); }
   }
   if(e.key==='Tab'&&!isTitle){e.preventDefault();if(e.shiftKey)unindentNode(id);else indentNode(id);}
-  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)){
+
+  // 上下はノード移動（常にnavモード）
+  if(e.key==='ArrowUp'||e.key==='ArrowDown'){
     e.preventDefault();
     const node=getNode(id);
-    if(e.key==='ArrowRight'){ if(node.children&&node.children.length>0) focusNode(node.children[0]); }
-    else if(e.key==='ArrowLeft'){ if(node.parentId!==null) focusNode(node.parentId); }
-    else {
-      const siblings=node.parentId===null?getRoots():getNode(node.parentId).children;
-      const idx=siblings.indexOf(id);
-      if(e.key==='ArrowUp'&&idx>0) focusNode(siblings[idx-1]);
-      if(e.key==='ArrowDown'&&idx<siblings.length-1) focusNode(siblings[idx+1]);
+    const siblings=node.parentId===null?getRoots():getNode(node.parentId).children;
+    const idx=siblings.indexOf(id);
+    if(e.key==='ArrowUp'&&idx>0) focusNode(siblings[idx-1]);
+    if(e.key==='ArrowDown'&&idx<siblings.length-1) focusNode(siblings[idx+1]);
+  }
+
+  // 左右：編集モード中はカーソル移動、端でノード移動
+  if(e.key==='ArrowLeft'||e.key==='ArrowRight'){
+    const node=getNode(id);
+    const sel=window.getSelection();
+    if(!sel||!sel.rangeCount) return;
+    const range=sel.getRangeAt(0);
+    const el=document.getElementById('t'+id);
+    if(!el) return;
+
+    if(e.key==='ArrowLeft'){
+      const atStart=range.collapsed&&range.startOffset===0&&(
+        range.startContainer===el||
+        (el.firstChild&&range.startContainer===el.firstChild)
+      );
+      if(atStart&&node.parentId!==null){
+        e.preventDefault();
+        focusNode(node.parentId);
+      }
+    } else {
+      const txt=el.innerText||'';
+      const atEnd=range.collapsed&&(
+        range.startOffset===txt.length||
+        (el.lastChild&&range.startContainer===el.lastChild&&range.startOffset===(el.lastChild.textContent||'').length)
+      );
+      if(atEnd&&node.children&&node.children.length>0){
+        e.preventDefault();
+        focusNode(node.children[0]);
+      }
     }
   }
+}
+
+let _isNavMode=false; // true=ノード移動モード, false=テキスト編集モード
+
+function setNavMode(id){
+  _isNavMode=true;
+  clearNodeModes();
+  const grp=document.querySelector(`.node-group[data-id="${id}"]`);
+  if(grp) grp.classList.add('nav-selected');
+  // テキストのfocused（文字拡大）はnavモードでは外す
+  document.querySelectorAll('.node-text.focused').forEach(e=>e.classList.remove('focused'));
+}
+
+function setEditMode(id){
+  _isNavMode=false;
+  clearNodeModes();
+  const grp=document.querySelector(`.node-group[data-id="${id}"]`);
+  if(grp) grp.classList.add('editing');
+  const el=document.getElementById('t'+id);
+  if(el) el.classList.add('focused');
+}
+
+function clearNodeModes(){
+  document.querySelectorAll('.node-group.nav-selected').forEach(e=>e.classList.remove('nav-selected'));
+  document.querySelectorAll('.node-group.editing').forEach(e=>e.classList.remove('editing'));
 }
 
 function focusNode(id){
   setTimeout(()=>{
     const el=document.getElementById('t'+id);if(!el)return;
-    document.querySelectorAll('.node-text.focused').forEach(e=>e.classList.remove('focused'));
-    el.classList.add('focused');el.focus();
+    setNavMode(id);
+    el.focus();
     const range=document.createRange();range.selectNodeContents(el);range.collapse(false);
     window.getSelection().removeAllRanges();window.getSelection().addRange(range);
   },30);
 }
 
 function onNodeFocus(id){
-  document.querySelectorAll('.node-text.focused').forEach(e=>e.classList.remove('focused'));
-  const el=document.getElementById('t'+id);if(el)el.classList.add('focused');
+  // クリックで直接フォーカスした場合は編集モード
+  if(!_isNavMode) setEditMode(id);
 }
+
 function onNodeBlur(){
   setTimeout(()=>{
-    if(!document.activeElement||!document.activeElement.classList.contains('node-text'))
+    if(!document.activeElement||!document.activeElement.classList.contains('node-text')){
+      clearNodeModes();
+      _isNavMode=false;
       document.querySelectorAll('.node-text.focused').forEach(e=>e.classList.remove('focused'));
+    }
   },100);
 }
 
@@ -689,6 +801,107 @@ function loadLocal(){
     }
   }catch(e){}return false;
 }
+
+/* ── ROOM (共有ルーム) ── */
+let currentRoomCode=null;
+let roomSubscription=null;
+let roomSaveTimer=null;
+
+function generateRoomCode(){
+  const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return Array.from({length:12},()=>chars[Math.floor(Math.random()*chars.length)]).join('');
+}
+
+function openRoomModal(){
+  const modal=document.getElementById('room-modal');
+  modal.style.display='flex';
+  if(currentRoomCode){
+    showRoomActive();
+  } else {
+    document.getElementById('room-view-join').style.display='block';
+    document.getElementById('room-view-active').style.display='none';
+  }
+}
+
+function closeRoomModal(){
+  document.getElementById('room-modal').style.display='none';
+}
+
+function showRoomActive(){
+  document.getElementById('room-view-join').style.display='none';
+  document.getElementById('room-view-active').style.display='block';
+  document.getElementById('room-code-display').textContent=currentRoomCode;
+}
+
+async function createRoom(){
+  const code=generateRoomCode();
+  const root=nodes.find(n=>n.parentId===null);
+  const {error}=await sb.from('rooms').insert({
+    code,
+    owner_id:currentUser.id,
+    title:root?root.text||'共有ツリー':'共有ツリー',
+    nodes:nodes
+  });
+  if(error){alert('ルームの作成に失敗しました');console.error(error);return;}
+  currentRoomCode=code;
+  showRoomActive();
+  subscribeRoom(code);
+}
+
+async function joinRoom(){
+  const code=document.getElementById('room-code-input').value.trim().toUpperCase();
+  if(code.length!==12){alert('12桁のコードを入力してください');return;}
+  const {data,error}=await sb.from('rooms').select('*').eq('code',code).single();
+  if(error||!data){alert('ルームが見つかりませんでした');return;}
+  currentRoomCode=code;
+  // ルームのノードをロード
+  nodes=data.nodes||[];
+  nextNodeId=Math.max(100,...nodes.map(n=>n.id+1));
+  renderTree();
+  showRoomActive();
+  subscribeRoom(code);
+}
+
+function subscribeRoom(code){
+  if(roomSubscription) roomSubscription.unsubscribe();
+  roomSubscription=sb.channel('room:'+code)
+    .on('postgres_changes',{event:'UPDATE',schema:'public',table:'rooms',filter:`code=eq.${code}`},payload=>{
+      if(payload.new&&payload.new.nodes){
+        nodes=payload.new.nodes;
+        nextNodeId=Math.max(100,...nodes.map(n=>n.id+1));
+        renderTree();
+      }
+    })
+    .subscribe();
+  setSyncStatus('🌿 ルーム参加中');
+}
+
+async function saveToRoom(){
+  if(!currentRoomCode) return;
+  const {error}=await sb.from('rooms').update({nodes,updated_at:new Date().toISOString()}).eq('code',currentRoomCode);
+  if(error) console.error('ルーム保存エラー',error);
+}
+
+async function leaveRoom(){
+  if(roomSubscription){roomSubscription.unsubscribe();roomSubscription=null;}
+  currentRoomCode=null;
+  setSyncStatus('');
+  closeRoomModal();
+  // 自分のページに戻る
+  const loaded=await loadFromCloud();
+  if(!loaded) loadLocal();
+  renderSidebar();renderPage();
+}
+
+function copyRoomCode(){
+  navigator.clipboard.writeText(currentRoomCode).then(()=>{
+    const btn=document.getElementById('copy-btn');
+    btn.textContent='✓ コピー済み';
+    setTimeout(()=>{btn.textContent='コピー';},2000);
+  });
+}
+
+// ルーム参加中はルームにも保存（saveCurrent内で制御済み）
 
 /* ── RICH TEXT ── */
 let currentColor='#1a1a18';
