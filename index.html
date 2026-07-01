@@ -712,28 +712,32 @@ function onKeyDown(id,e,isTitle){
     if(e.key==='ArrowDown'&&idx<siblings.length-1) focusNode(siblings[idx+1]);
   }
 
-  // 左右：navモード中はノード移動、編集モード中は端でnavモード→もう一度でノード移動
+  // 左右キー
   if(e.key==='ArrowLeft'||e.key==='ArrowRight'){
     const node=getNode(id);
+    const goLeft=e.key==='ArrowLeft';
+    const goRight=e.key==='ArrowRight';
+
     if(_isNavMode){
-      // navモード中は即ノード移動
+      // navモード → 即ノード移動
       e.preventDefault();
-      if(e.key==='ArrowLeft'&&node.parentId!==null) focusNode(node.parentId);
-      else if(e.key==='ArrowRight'&&node.children&&node.children.length>0) focusNode(node.children[0]);
+      if(goLeft&&node.parentId!==null) focusNode(node.parentId);
+      else if(goRight&&node.children&&node.children.length>0) focusNode(node.children[0]);
       return;
     }
-    // 編集モード中：ブラウザにカーソル移動させてから端を判定
-    const keyDir=e.key;
+
+    // 編集モード → ブラウザにカーソルを動かさせてから端を判定
     setTimeout(()=>{
+      const el=document.getElementById('t'+id);if(!el) return;
       const sel=window.getSelection();
       if(!sel||!sel.rangeCount) return;
       const range=sel.getRangeAt(0);
-      const el=document.getElementById('t'+id);
-      if(!el||!range.collapsed) return;
-      if(keyDir==='ArrowLeft'){
-        if(isAtStart(el,range)&&node.parentId!==null) setNavMode(id);
-      } else {
-        if(isAtEnd(el,range)&&node.children&&node.children.length>0) setNavMode(id);
+      if(!range.collapsed) return;
+
+      if(goLeft&&isAtStart(el,range)&&node.parentId!==null){
+        setNavMode(id);
+      } else if(goRight&&isAtEnd(el,range)&&node.children&&node.children.length>0){
+        setNavMode(id);
       }
     },0);
   }
@@ -766,20 +770,30 @@ function clearNodeModes(){
 
 function isAtStart(el, range){
   if(!range.collapsed) return false;
-  // rangeをel先頭のrangeと比較
-  const start=document.createRange();
-  start.selectNodeContents(el);
-  start.collapse(true);
-  return range.compareBoundaryPoints(Range.START_TO_START, start)===0;
+  try{
+    // カーソルをel先頭に置いたrangeと比較
+    const testRange=range.cloneRange();
+    testRange.setStart(el, 0);
+    return testRange.toString().length===0&&range.startOffset===0&&
+      (range.startContainer===el||range.startContainer===el.childNodes[0]);
+  }catch(e){
+    return false;
+  }
 }
 
 function isAtEnd(el, range){
   if(!range.collapsed) return false;
-  // rangeをel末尾のrangeと比較
-  const end=document.createRange();
-  end.selectNodeContents(el);
-  end.collapse(false);
-  return range.compareBoundaryPoints(Range.END_TO_END, end)===0;
+  try{
+    // el全体のテキスト長とカーソルまでのテキスト長を比較
+    const fullText=el.innerText||'';
+    const beforeRange=document.createRange();
+    beforeRange.setStart(el,0);
+    beforeRange.setEnd(range.startContainer, range.startOffset);
+    const beforeText=beforeRange.toString();
+    return beforeText.length>=fullText.replace(/\n$/,'').length;
+  }catch(e){
+    return false;
+  }
 }
 
 function focusNode(id, editMode=false){
@@ -819,12 +833,24 @@ function addSibling(afterId){
   snapshot();
   const nn={id:nuid(),parentId:node.parentId,text:'',children:[]};nodes.push(nn);
   const p=getNode(node.parentId);p.children.splice(p.children.indexOf(afterId)+1,0,nn.id);
-  renderTree();focusNode(nn.id,true);saveCurrent();
+  renderTree();
+  // saveCurrentより先にfocusして競合を避ける
+  setTimeout(()=>{
+    const el=document.getElementById('t'+nn.id);
+    if(el){setEditMode(nn.id);el.focus();}
+  },80);
+  saveCurrent();
 }
 function addChild(parentId){
   snapshot();
   const nn={id:nuid(),parentId,text:'',children:[]};nodes.push(nn);
-  getNode(parentId).children.push(nn.id);renderTree();focusNode(nn.id,true);saveCurrent();
+  getNode(parentId).children.push(nn.id);
+  renderTree();
+  setTimeout(()=>{
+    const el=document.getElementById('t'+nn.id);
+    if(el){setEditMode(nn.id);el.focus();}
+  },80);
+  saveCurrent();
 }
 function deleteNode(id){
   const node=getNode(id);if(node.parentId===null)return;
