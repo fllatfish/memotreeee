@@ -771,14 +771,12 @@ function clearNodeModes(){
 function isAtStart(el, range){
   if(!range.collapsed) return false;
   try{
-    // カーソルをel先頭に置いたrangeと比較
-    const testRange=range.cloneRange();
-    testRange.setStart(el, 0);
-    return testRange.toString().length===0&&range.startOffset===0&&
-      (range.startContainer===el||range.startContainer===el.childNodes[0]);
-  }catch(e){
-    return false;
-  }
+    // カーソルより前のテキスト長が0なら先頭
+    const beforeRange=document.createRange();
+    beforeRange.setStart(el,0);
+    beforeRange.setEnd(range.startContainer, range.startOffset);
+    return beforeRange.toString().length===0;
+  }catch(e){return false;}
 }
 
 function isAtEnd(el, range){
@@ -1077,10 +1075,14 @@ async function enterRoom(code){
   updateRoomUI();
 }
 
+let _isSavingToRoom=false;
+
 function subscribeRoom(code){
   if(roomSubscription) roomSubscription.unsubscribe();
   roomSubscription=sb.channel('room:'+code)
     .on('postgres_changes',{event:'UPDATE',schema:'public',table:'rooms',filter:`code=eq.${code}`},payload=>{
+      // 自分の保存中は無視してフォーカスを守る
+      if(_isSavingToRoom) return;
       if(!payload.new) return;
       let raw=payload.new.nodes;
       if(typeof raw==='string') try{raw=JSON.parse(raw);}catch(e){raw=null;}
@@ -1089,7 +1091,6 @@ function subscribeRoom(code){
       } else if(Array.isArray(raw)){
         roomPages=[{title:'',nodes:raw}];
       }
-      // 現在のページだけ更新
       const rp=roomPages[currentRoomPageIdx];
       if(rp){
         nodes=rp.nodes.map(n=>({...n,children:[...n.children]}));
@@ -1101,25 +1102,17 @@ function subscribeRoom(code){
     .subscribe();
 }
 
-async function joinRoom(){
-  const code=document.getElementById('room-code-input').value.trim().toUpperCase();
-  if(code.length!==12){alert('12桁のコードを入力してください');return;}
-  await enterRoom(code);
-}
-
-async function quickJoinRoom(code){
-  await enterRoom(code);
-}
-
 async function saveToRoom(){
   if(!currentRoomCode) return;
-  // 現在のページを保存してからroomPages全体をupdate
   if(roomPages[currentRoomPageIdx]) roomPages[currentRoomPageIdx].nodes=[...nodes];
+  _isSavingToRoom=true;
   const {error}=await sb.from('rooms').update({
     nodes:JSON.stringify(roomPages),
     updated_at:new Date().toISOString()
   }).eq('code',currentRoomCode);
   if(error) console.error('ルーム保存エラー',error);
+  // 少し待ってからフラグを解除（自分の更新の受信が完了するまで）
+  setTimeout(()=>{_isSavingToRoom=false;},1500);
 }
 
 async function leaveRoom(){
