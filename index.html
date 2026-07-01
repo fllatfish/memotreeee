@@ -296,6 +296,11 @@ header{padding:12px 16px;border-bottom:0.5px solid var(--border);display:flex;al
   <header>
     <button id="sidebar-toggle" onclick="toggleSidebar()" aria-label="サイドバー">☰</button>
     <span id="page-title-display">無題</span>
+    <span id="room-indicator" style="display:none;align-items:center;gap:5px;flex-shrink:0;background:#F0FAE4;border-radius:20px;padding:3px 10px 3px 6px;border:0.5px solid #b6e88a;">
+      <span style="font-size:13px;">🌿</span>
+      <span id="room-indicator-name" style="font-size:12px;color:#4a8a1a;font-weight:500;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+      <span style="font-size:12px;" title="共有ルーム">👥</span>
+    </span>
     <div style="display:flex;gap:4px;align-items:center;">
       <button class="hbtn" id="undo-btn" onclick="undo()" title="元に戻す (Ctrl+Z)" disabled>↩ 戻す</button>
       <button class="hbtn" id="redo-btn" onclick="redo()" title="やり直す (Ctrl+Y)" disabled>↪ 進む</button>
@@ -304,6 +309,10 @@ header{padding:12px 16px;border-bottom:0.5px solid var(--border);display:flex;al
     </div>
   </header>
   <div id="content"><div id="app"></div></div>
+  <!-- 自分のルームに戻るボタン（共有ルーム中のみ表示） -->
+  <button id="leave-room-fab" onclick="leaveRoom()" style="display:none;position:fixed;bottom:24px;left:240px;z-index:30;padding:10px 16px;border-radius:24px;border:none;background:#1a1a18;color:#fff;cursor:pointer;font-size:13px;gap:6px;align-items:center;box-shadow:0 2px 12px rgba(0,0,0,0.18);">
+    🏠 自分のメモに戻る
+  </button>
 </div>
 
 <script>
@@ -886,13 +895,36 @@ function renderRecentRooms(){
   if(!rooms.length){sec.style.display='none';return;}
   sec.style.display='block';
   list.innerHTML=rooms.map(r=>`
-    <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:0.5px solid var(--border);">
+    <div style="display:flex;align-items:center;gap:6px;padding:7px 0;border-bottom:0.5px solid var(--border);">
       <div style="flex:1;min-width:0;">
         <div style="font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.title||'共有ルーム')}</div>
         <div style="font-size:11px;color:var(--text-muted);font-family:monospace;letter-spacing:0.05em;">${r.code}</div>
       </div>
-      <button onclick="quickJoinRoom('${r.code}')" style="padding:5px 12px;border-radius:6px;border:none;background:var(--accent);color:#fff;cursor:pointer;font-size:12px;flex-shrink:0;">入る</button>
+      <button onclick="copyCode('${r.code}',this)" style="padding:5px 8px;border-radius:6px;border:0.5px solid var(--border-strong);background:transparent;color:var(--text-muted);cursor:pointer;font-size:11px;flex-shrink:0;">コピー</button>
+      <button onclick="quickJoinRoom('${r.code}')" style="padding:5px 10px;border-radius:6px;border:none;background:var(--accent);color:#fff;cursor:pointer;font-size:12px;flex-shrink:0;">入る</button>
     </div>`).join('');
+}
+
+function copyCode(code, btn){
+  navigator.clipboard.writeText(code).then(()=>{
+    const orig=btn.textContent;
+    btn.textContent='✓';
+    setTimeout(()=>{btn.textContent=orig;},1500);
+  });
+}
+
+function updateRoomUI(){
+  const indicator=document.getElementById('room-indicator');
+  const fab=document.getElementById('leave-room-fab');
+  if(currentRoomCode){
+    indicator.style.display='flex';
+    document.getElementById('room-indicator-name').textContent=currentRoomTitle||'共有ルーム';
+    fab.style.display='flex';
+    fab.style.left=sidebarVisible?'240px':'20px';
+  } else {
+    indicator.style.display='none';
+    fab.style.display='none';
+  }
 }
 
 async function createRoom(){
@@ -916,9 +948,10 @@ async function createRoom(){
   nodes=[{id:nuid(),parentId:null,text:title,children:[]}];
   renderTree();
   showRoomActive();
-  closeRoomModal(); // モーダルを閉じてすぐ編集画面へ
+  closeRoomModal();
   subscribeRoom(code);
   setSyncStatus('🌿 '+title+' で編集中');
+  updateRoomUI();
   nameInput.value='';
 }
 
@@ -942,9 +975,10 @@ async function enterRoom(code){
   if(!nodes.length) nodes=[{id:nuid(),parentId:null,text:currentRoomTitle,children:[]}];
   nextNodeId=Math.max(100,...nodes.map(n=>n.id+1));
   renderTree();
-  closeRoomModal(); // 閉じてすぐ編集画面へ
+  closeRoomModal();
   subscribeRoom(code);
   setSyncStatus('🌿 '+currentRoomTitle+' で編集中');
+  updateRoomUI();
 }
 
 function subscribeRoom(code){
@@ -972,17 +1006,15 @@ async function leaveRoom(){
   currentRoomTitle=null;
   setSyncStatus('');
   closeRoomModal();
+  updateRoomUI();
   const loaded=await loadFromCloud();
   if(!loaded) loadLocal();
   renderSidebar();renderPage();
 }
 
 function copyRoomCode(){
-  navigator.clipboard.writeText(currentRoomCode).then(()=>{
-    const btn=document.getElementById('copy-btn');
-    btn.textContent='✓ コピー済み';
-    setTimeout(()=>{btn.textContent='コピー';},2000);
-  });
+  const btn=document.getElementById('copy-btn');
+  copyCode(currentRoomCode, btn);
 }
 
 // ルーム参加中はルームにも保存（saveCurrent内で制御済み）
