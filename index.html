@@ -523,12 +523,14 @@ function deletePage(id){
 
 function renderSidebar(){
   if(currentRoomCode){
-    // 共有ルームモード：ルーム名だけ表示
-    document.getElementById('page-list').innerHTML=`
-      <div class="page-item active" style="flex-direction:column;align-items:flex-start;gap:2px;">
-        <span class="page-item-title" style="font-weight:500;">${esc(currentRoomTitle||'共有ルーム')}</span>
-        <span style="font-size:10px;color:var(--text-muted);font-family:monospace;letter-spacing:0.05em;">${currentRoomCode}</span>
-      </div>`;
+    // 共有ルームモード：ルームのページ一覧
+    document.getElementById('page-list').innerHTML=
+      roomPages.map((rp,i)=>`
+        <div class="page-item${i===currentRoomPageIdx?' active':''}" onclick="switchRoomPage(${i})">
+          <span class="page-item-title">${esc(rp.title||'無題')}</span>
+          ${roomPages.length>1?`<button class="page-del" onclick="event.stopPropagation();deleteRoomPage(${i})" title="削除">✕</button>`:''}
+        </div>`).join('')+
+      `<div style="padding:8px 6px;"><button class="new-page-btn" onclick="addRoomPage()" style="border-color:#7EC845;color:#7EC845;">＋ ページを追加</button></div>`;
   } else {
     // 個人モード：ページ一覧
     document.getElementById('page-list').innerHTML=pages.map(p=>`
@@ -710,31 +712,28 @@ function onKeyDown(id,e,isTitle){
     if(e.key==='ArrowDown'&&idx<siblings.length-1) focusNode(siblings[idx+1]);
   }
 
-  // 左右：編集モード中はカーソル移動、端でノード選択（navモード）
+  // 左右：navモード中はノード移動、編集モード中は端でnavモード→もう一度でノード移動
   if(e.key==='ArrowLeft'||e.key==='ArrowRight'){
-    // navモード中は即ノード移動
+    const node=getNode(id);
     if(_isNavMode){
+      // navモード中は即ノード移動
       e.preventDefault();
-      const node=getNode(id);
       if(e.key==='ArrowLeft'&&node.parentId!==null) focusNode(node.parentId);
-      if(e.key==='ArrowRight'&&node.children&&node.children.length>0) focusNode(node.children[0]);
+      else if(e.key==='ArrowRight'&&node.children&&node.children.length>0) focusNode(node.children[0]);
       return;
     }
-    // 編集モード中：端に到達したらnavモードへ（ブラウザのカーソル移動後に判定）
+    // 編集モード中：ブラウザにカーソル移動させてから端を判定
+    const keyDir=e.key;
     setTimeout(()=>{
-      const node=getNode(id);
       const sel=window.getSelection();
       if(!sel||!sel.rangeCount) return;
       const range=sel.getRangeAt(0);
       const el=document.getElementById('t'+id);
       if(!el||!range.collapsed) return;
-
-      if(e.key==='ArrowLeft'){
-        const atStart=isAtStart(el,range);
-        if(atStart&&node.parentId!==null) setNavMode(id);
+      if(keyDir==='ArrowLeft'){
+        if(isAtStart(el,range)&&node.parentId!==null) setNavMode(id);
       } else {
-        const atEnd=isAtEnd(el,range);
-        if(atEnd&&node.children&&node.children.length>0) setNavMode(id);
+        if(isAtEnd(el,range)&&node.children&&node.children.length>0) setNavMode(id);
       }
     },0);
   }
@@ -783,14 +782,21 @@ function isAtEnd(el, range){
   return range.compareBoundaryPoints(Range.END_TO_END, end)===0;
 }
 
-function focusNode(id){
+function focusNode(id, editMode=false){
   setTimeout(()=>{
     const el=document.getElementById('t'+id);if(!el)return;
-    setNavMode(id);
-    el.focus();
-    const range=document.createRange();range.selectNodeContents(el);range.collapse(false);
-    window.getSelection().removeAllRanges();window.getSelection().addRange(range);
-  },30);
+    if(editMode){
+      setEditMode(id);
+      el.focus();
+      const range=document.createRange();range.selectNodeContents(el);range.collapse(false);
+      window.getSelection().removeAllRanges();window.getSelection().addRange(range);
+    } else {
+      setNavMode(id);
+      el.focus();
+      const range=document.createRange();range.selectNodeContents(el);range.collapse(false);
+      window.getSelection().removeAllRanges();window.getSelection().addRange(range);
+    }
+  },60);
 }
 
 function onNodeFocus(id){
@@ -813,12 +819,12 @@ function addSibling(afterId){
   snapshot();
   const nn={id:nuid(),parentId:node.parentId,text:'',children:[]};nodes.push(nn);
   const p=getNode(node.parentId);p.children.splice(p.children.indexOf(afterId)+1,0,nn.id);
-  renderTree();focusNode(nn.id);saveCurrent();
+  renderTree();focusNode(nn.id,true);saveCurrent();
 }
 function addChild(parentId){
   snapshot();
   const nn={id:nuid(),parentId,text:'',children:[]};nodes.push(nn);
-  getNode(parentId).children.push(nn.id);renderTree();focusNode(nn.id);saveCurrent();
+  getNode(parentId).children.push(nn.id);renderTree();focusNode(nn.id,true);saveCurrent();
 }
 function deleteNode(id){
   const node=getNode(id);if(node.parentId===null)return;
@@ -864,6 +870,8 @@ let currentRoomCode=null;
 let currentRoomTitle=null;
 let roomSubscription=null;
 let roomSaveTimer=null;
+let roomPages=[];        // 共有ルームのページ一覧
+let currentRoomPageIdx=0; // 現在のルームページIndex
 
 function generateRoomCode(){
   const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -942,14 +950,53 @@ function updateRoomUI(){
   }
 }
 
+/* ルームページ操作 */
+function switchRoomPage(idx){
+  // 現在のページを保存
+  if(roomPages[currentRoomPageIdx]) roomPages[currentRoomPageIdx].nodes=[...nodes];
+  currentRoomPageIdx=idx;
+  const rp=roomPages[idx];
+  nodes=rp.nodes.map(n=>({...n,children:[...n.children]}));
+  nextNodeId=Math.max(100,...nodes.map(n=>n.id+1),nextNodeId);
+  renderTree();
+  renderSidebar();
+  document.getElementById('page-title-display').textContent=rp.title||'無題';
+  clearTimeout(roomSaveTimer);
+  roomSaveTimer=setTimeout(saveToRoom,800);
+}
+
+function addRoomPage(){
+  if(roomPages[currentRoomPageIdx]) roomPages[currentRoomPageIdx].nodes=[...nodes];
+  const rootId=nuid();
+  const newRp={title:'',nodes:[{id:rootId,parentId:null,text:'',children:[],html:''}]};
+  roomPages.push(newRp);
+  currentRoomPageIdx=roomPages.length-1;
+  nodes=newRp.nodes.map(n=>({...n,children:[...n.children]}));
+  renderTree();
+  renderSidebar();
+  document.getElementById('page-title-display').textContent=currentRoomTitle;
+  focusNode(rootId,true);
+  clearTimeout(roomSaveTimer);
+  roomSaveTimer=setTimeout(saveToRoom,800);
+}
+
+function deleteRoomPage(idx){
+  if(roomPages.length<=1) return;
+  if(roomPages[currentRoomPageIdx]) roomPages[currentRoomPageIdx].nodes=[...nodes];
+  roomPages.splice(idx,1);
+  currentRoomPageIdx=Math.min(currentRoomPageIdx,roomPages.length-1);
+  switchRoomPage(currentRoomPageIdx);
+}
+
 async function createRoom(){
   const nameInput=document.getElementById('room-name-input');
   const title=nameInput.value.trim()||'共有ルーム';
   const code=generateRoomCode();
+  const rootId=nuid();
+  const initPages=[{title:'',nodes:[{id:rootId,parentId:null,text:'',children:[],html:''}]}];
   const {data,error}=await sb.from('rooms').insert({
-    code,
-    title,
-    nodes:[]
+    code, title,
+    nodes:JSON.stringify(initPages) // pagesをnodes列に格納
   }).select().single();
   if(error){
     console.error('ルーム作成エラー:', JSON.stringify(error));
@@ -959,9 +1006,9 @@ async function createRoom(){
   currentRoomCode=code;
   currentRoomTitle=title;
   saveRecentRoom(code,title);
-  // ルームの初期ノード（1層目は空でプレースホルダー表示）
-  const rootId=nuid();
-  nodes=[{id:rootId,parentId:null,text:'',children:[],html:''}];
+  roomPages=initPages;
+  currentRoomPageIdx=0;
+  nodes=roomPages[0].nodes.map(n=>({...n,children:[...n.children]}));
   nextNodeId=rootId+1;
   renderTree();
   renderSidebar();
@@ -971,6 +1018,61 @@ async function createRoom(){
   setSyncStatus('🌿 '+title+' で編集中');
   updateRoomUI();
   nameInput.value='';
+}
+
+async function enterRoom(code){
+  const {data,error}=await sb.from('rooms').select('*').eq('code',code).single();
+  if(error||!data){alert('ルームが見つかりませんでした');return;}
+  currentRoomCode=code;
+  currentRoomTitle=data.title||'共有ルーム';
+  saveRecentRoom(code,currentRoomTitle);
+  // nodesカラムにpages配列を格納している
+  let raw=data.nodes;
+  if(typeof raw==='string') try{raw=JSON.parse(raw);}catch(e){raw=null;}
+  if(Array.isArray(raw)&&raw.length>0&&raw[0].nodes){
+    // 複数ページ形式
+    roomPages=raw;
+  } else if(Array.isArray(raw)){
+    // 旧形式（ノード配列）→1ページに変換
+    roomPages=[{title:'',nodes:raw.length?raw:[{id:nuid(),parentId:null,text:'',children:[],html:''}]}];
+  } else {
+    const rootId=nuid();
+    roomPages=[{title:'',nodes:[{id:rootId,parentId:null,text:'',children:[],html:''}]}];
+  }
+  currentRoomPageIdx=0;
+  nodes=roomPages[0].nodes.map(n=>({...n,children:[...n.children]}));
+  nextNodeId=Math.max(100,...roomPages.flatMap(rp=>rp.nodes.map(n=>n.id+1)));
+  renderTree();
+  renderSidebar();
+  document.getElementById('page-title-display').textContent=currentRoomTitle;
+  closeRoomModal();
+  subscribeRoom(code);
+  setSyncStatus('🌿 '+currentRoomTitle+' で編集中');
+  updateRoomUI();
+}
+
+function subscribeRoom(code){
+  if(roomSubscription) roomSubscription.unsubscribe();
+  roomSubscription=sb.channel('room:'+code)
+    .on('postgres_changes',{event:'UPDATE',schema:'public',table:'rooms',filter:`code=eq.${code}`},payload=>{
+      if(!payload.new) return;
+      let raw=payload.new.nodes;
+      if(typeof raw==='string') try{raw=JSON.parse(raw);}catch(e){raw=null;}
+      if(Array.isArray(raw)&&raw.length>0&&raw[0].nodes){
+        roomPages=raw;
+      } else if(Array.isArray(raw)){
+        roomPages=[{title:'',nodes:raw}];
+      }
+      // 現在のページだけ更新
+      const rp=roomPages[currentRoomPageIdx];
+      if(rp){
+        nodes=rp.nodes.map(n=>({...n,children:[...n.children]}));
+        nextNodeId=Math.max(nextNodeId,...nodes.map(n=>n.id+1));
+        renderTree();
+        renderSidebar();
+      }
+    })
+    .subscribe();
 }
 
 async function joinRoom(){
@@ -983,46 +1085,14 @@ async function quickJoinRoom(code){
   await enterRoom(code);
 }
 
-async function enterRoom(code){
-  const {data,error}=await sb.from('rooms').select('*').eq('code',code).single();
-  if(error||!data){alert('ルームが見つかりませんでした');return;}
-  currentRoomCode=code;
-  currentRoomTitle=data.title||'共有ルーム';
-  saveRecentRoom(code,currentRoomTitle);
-  nodes=data.nodes||[];
-  if(!nodes.length){
-    const rootId=nuid();
-    nodes=[{id:rootId,parentId:null,text:'',children:[],html:''}];
-    nextNodeId=rootId+1;
-  } else {
-    nextNodeId=Math.max(100,...nodes.map(n=>n.id+1));
-  }
-  renderTree();
-  renderSidebar();
-  // ヘッダーはルーム名を表示
-  document.getElementById('page-title-display').textContent=currentRoomTitle;
-  closeRoomModal();
-  subscribeRoom(code);
-  setSyncStatus('🌿 '+currentRoomTitle+' で編集中');
-  updateRoomUI();
-}
-
-function subscribeRoom(code){
-  if(roomSubscription) roomSubscription.unsubscribe();
-  roomSubscription=sb.channel('room:'+code)
-    .on('postgres_changes',{event:'UPDATE',schema:'public',table:'rooms',filter:`code=eq.${code}`},payload=>{
-      if(payload.new&&payload.new.nodes){
-        nodes=payload.new.nodes;
-        nextNodeId=Math.max(100,...nodes.map(n=>n.id+1));
-        renderTree();
-      }
-    })
-    .subscribe();
-}
-
 async function saveToRoom(){
   if(!currentRoomCode) return;
-  const {error}=await sb.from('rooms').update({nodes,updated_at:new Date().toISOString()}).eq('code',currentRoomCode);
+  // 現在のページを保存してからroomPages全体をupdate
+  if(roomPages[currentRoomPageIdx]) roomPages[currentRoomPageIdx].nodes=[...nodes];
+  const {error}=await sb.from('rooms').update({
+    nodes:JSON.stringify(roomPages),
+    updated_at:new Date().toISOString()
+  }).eq('code',currentRoomCode);
   if(error) console.error('ルーム保存エラー',error);
 }
 
