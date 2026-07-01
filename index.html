@@ -522,11 +522,21 @@ function deletePage(id){
 }
 
 function renderSidebar(){
-  document.getElementById('page-list').innerHTML=pages.map(p=>`
-    <div class="page-item${p.id===currentPageId?' active':''}" onclick="switchPage(${p.id})">
-      <span class="page-item-title">${esc(p.title||'無題')}</span>
-      <button class="page-del" onclick="event.stopPropagation();deletePage(${p.id})" title="削除">✕</button>
-    </div>`).join('');
+  if(currentRoomCode){
+    // 共有ルームモード：ルーム名だけ表示
+    document.getElementById('page-list').innerHTML=`
+      <div class="page-item active" style="flex-direction:column;align-items:flex-start;gap:2px;">
+        <span class="page-item-title" style="font-weight:500;">${esc(currentRoomTitle||'共有ルーム')}</span>
+        <span style="font-size:10px;color:var(--text-muted);font-family:monospace;letter-spacing:0.05em;">${currentRoomCode}</span>
+      </div>`;
+  } else {
+    // 個人モード：ページ一覧
+    document.getElementById('page-list').innerHTML=pages.map(p=>`
+      <div class="page-item${p.id===currentPageId?' active':''}" onclick="switchPage(${p.id})">
+        <span class="page-item-title">${esc(p.title||'無題')}</span>
+        <button class="page-del" onclick="event.stopPropagation();deletePage(${p.id})" title="削除">✕</button>
+      </div>`).join('');
+  }
 }
 
 function renderPage(){
@@ -662,9 +672,14 @@ function onText(id,el){
   node.text=el.innerText.replace(/\n/g,'');
   node.html=el.innerHTML;
   if(node.parentId===null){
-    document.getElementById('page-title-display').textContent=node.text||'無題';
-    const page=getCurrentPage();if(page) page.title=node.text||'無題';
-    renderSidebar();
+    const title=node.text||'無題';
+    document.getElementById('page-title-display').textContent=title;
+    if(currentRoomCode){
+      // ルームモード：1層目テキストはヘッダーに反映するがルーム名は変えない
+    } else {
+      const page=getCurrentPage();if(page) page.title=title;
+      renderSidebar();
+    }
   }
   requestAnimationFrame(()=>setTimeout(drawConnectors,20));
 }
@@ -944,10 +959,13 @@ async function createRoom(){
   currentRoomCode=code;
   currentRoomTitle=title;
   saveRecentRoom(code,title);
-  // ノードを空にしてルームのツリーへ
-  nodes=[{id:nuid(),parentId:null,text:title,children:[]}];
+  // ルームの初期ノード（1層目は空でプレースホルダー表示）
+  const rootId=nuid();
+  nodes=[{id:rootId,parentId:null,text:'',children:[],html:''}];
+  nextNodeId=rootId+1;
   renderTree();
-  showRoomActive();
+  renderSidebar();
+  document.getElementById('page-title-display').textContent=title;
   closeRoomModal();
   subscribeRoom(code);
   setSyncStatus('🌿 '+title+' で編集中');
@@ -972,9 +990,17 @@ async function enterRoom(code){
   currentRoomTitle=data.title||'共有ルーム';
   saveRecentRoom(code,currentRoomTitle);
   nodes=data.nodes||[];
-  if(!nodes.length) nodes=[{id:nuid(),parentId:null,text:currentRoomTitle,children:[]}];
-  nextNodeId=Math.max(100,...nodes.map(n=>n.id+1));
+  if(!nodes.length){
+    const rootId=nuid();
+    nodes=[{id:rootId,parentId:null,text:'',children:[],html:''}];
+    nextNodeId=rootId+1;
+  } else {
+    nextNodeId=Math.max(100,...nodes.map(n=>n.id+1));
+  }
   renderTree();
+  renderSidebar();
+  // ヘッダーはルーム名を表示
+  document.getElementById('page-title-display').textContent=currentRoomTitle;
   closeRoomModal();
   subscribeRoom(code);
   setSyncStatus('🌿 '+currentRoomTitle+' で編集中');
@@ -1009,7 +1035,8 @@ async function leaveRoom(){
   updateRoomUI();
   const loaded=await loadFromCloud();
   if(!loaded) loadLocal();
-  renderSidebar();renderPage();
+  renderSidebar();
+  renderPage();
 }
 
 function copyRoomCode(){
