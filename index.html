@@ -1044,6 +1044,16 @@ async function createRoom(){
   nameInput.value='';
 }
 
+async function joinRoom(){
+  const code=document.getElementById('room-code-input').value.trim().toUpperCase();
+  if(code.length!==12){alert('12桁のコードを入力してください');return;}
+  await enterRoom(code);
+}
+
+async function quickJoinRoom(code){
+  await enterRoom(code);
+}
+
 async function enterRoom(code){
   const {data,error}=await sb.from('rooms').select('*').eq('code',code).single();
   if(error||!data){alert('ルームが見つかりませんでした');return;}
